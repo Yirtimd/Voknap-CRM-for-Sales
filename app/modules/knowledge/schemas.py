@@ -40,6 +40,7 @@ class SearchRequest(BaseModel):
     scope: KnowledgeScope = "global"
     company_id: UUID | None = None
     deal_id: UUID | None = None
+    document_id: UUID | None = None
     include_global: bool = False
 
     @model_validator(mode="after")
@@ -55,9 +56,11 @@ class SearchResultResponse(BaseModel):
     document_scope: str = "global"
     company_id: UUID | None = None
     deal_id: UUID | None = None
+    page_number: int | None = None
     text: str
     score: float
     chunk_index: int
+    retrieval_method: str = "hybrid"
 
 
 class AskRequest(BaseModel):
@@ -66,6 +69,7 @@ class AskRequest(BaseModel):
     scope: KnowledgeScope = "global"
     company_id: UUID | None = None
     deal_id: UUID | None = None
+    document_id: UUID | None = None
     include_global: bool = False
 
     @model_validator(mode="after")
@@ -82,17 +86,33 @@ class CitationResponse(BaseModel):
     company_id: UUID | None = None
     deal_id: UUID | None = None
     chunk_index: int
+    page_number: int | None = None
     text: str
     score: float
+    retrieval_method: str = "hybrid"
 
 
 class AskResponse(BaseModel):
+    query_id: UUID
     answer: str
     citations: list[CitationResponse]
     scope: KnowledgeScope
     company_id: UUID | None = None
     deal_id: UUID | None = None
+    document_id: UUID | None = None
     include_global: bool = False
+    retrieval_mode: str = "hybrid"
+
+
+class QueryFeedbackRequest(BaseModel):
+    rating: Literal["up", "down"]
+    comment: str | None = Field(default=None, max_length=2000)
+
+
+class QueryFeedbackResponse(BaseModel):
+    query_id: UUID
+    rating: Literal["up", "down"]
+    comment: str | None = None
 
 
 def _validate_scope_context(scope: KnowledgeScope, company_id: UUID | None, deal_id: UUID | None) -> None:

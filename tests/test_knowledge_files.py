@@ -56,6 +56,7 @@ def test_parse_pdf_text():
     assert parsed.mime_type == "application/pdf"
     assert parsed.extraction_method == "pypdf"
     assert parsed.source_pages == 1
+    assert parsed.pages == ("Hello PDF knowledge base",)
 
 
 def test_scanned_pdf_uses_ocr(monkeypatch):

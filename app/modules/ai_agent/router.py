@@ -69,17 +69,31 @@ def chat(
     tenant: CurrentTenant = Depends(require_permission(Permission.AI_USE)),
 ) -> AgentChatResponse:
     service = AgentService(db)
-    answer, actions, sources = service.chat(
-        tenant_id=tenant.id,
-        user_id=tenant.user_id,
-        message=payload.message,
-        company_id=payload.company_id,
-        deal_id=payload.deal_id,
-    )
+    try:
+        result = service.chat(
+            tenant_id=tenant.id,
+            user_id=tenant.user_id,
+            message=payload.message,
+            context_type=payload.context_type,
+            company_id=payload.company_id,
+            deal_id=payload.deal_id,
+            document_id=payload.document_id,
+            include_global=payload.include_global,
+            page_path=payload.page_path,
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
     return AgentChatResponse(
-        answer=answer,
-        actions=[_action_response(action) for action in actions],
-        sources=sources,
+        message_id=result.message.id,
+        query_id=result.query_id,
+        answer=result.answer,
+        actions=[_action_response(action) for action in result.actions],
+        sources=result.sources,
+        intent=result.intent,
+        context=result.context,
     )
 
 
@@ -97,6 +111,10 @@ def history(
             id=message.id,
             role=message.role,
             content=message.content,
+            intent=message.intent,
+            context=json.loads(message.context_json),
+            sources=json.loads(message.sources_json),
+            query_id=message.knowledge_query_id,
             created_at=message.created_at,
         )
         for message in messages

@@ -589,6 +589,34 @@ function openKnowledgeSource(sourceId: string) {
   if (document?.download_url) void crmStore.downloadKnowledgeDocument(document);
 }
 
+function openCompanyAgent() {
+  if (!props.company) return;
+  crmStore.openAgent(currentDeal.value
+    ? {
+        type: "deal",
+        company_id: props.company.id,
+        deal_id: currentDeal.value.id
+      }
+    : {
+        type: "company",
+        company_id: props.company.id
+      });
+}
+
+function askKnowledgeSource(sourceId: string) {
+  const document = knowledgeDocuments.value.find((item) => item.id === sourceId);
+  if (!document) return;
+  crmStore.openAgent(
+    {
+      type: "document",
+      document_id: document.id,
+      company_id: document.company_id ?? null,
+      deal_id: document.deal_id ?? null
+    },
+    `Что важно знать из документа «${document.title}»?`
+  );
+}
+
 function confirmCopilotAction(actionId: string) {
   void runDrawerAction(() => crmStore.confirmAgentAction(actionId));
 }
@@ -669,6 +697,7 @@ function saveNextAction() {
         </div>
 
         <div class="company-modal__header-actions">
+          <button type="button" @click="openCompanyAgent"><UiIcon name="sparkles" :size="16" /> AI</button>
           <button type="button" aria-label="Дополнительные действия" :disabled="isSaving" @click="logNote">...</button>
           <button type="button" @click="openDrawerAction('task')">Изменить</button>
           <button type="button" class="is-primary" @click="activeTab = 'deals'"><UiIcon name="plus" :size="16" /> Сделка</button>
@@ -1006,6 +1035,7 @@ function saveNextAction() {
                   <strong>{{ source.title }}</strong>
                   <small>{{ source.meta }}</small>
                 </div>
+                <button type="button" aria-label="Задать вопрос по источнику" @click="askKnowledgeSource(source.id)"><UiIcon name="sparkles" :size="16" /></button>
                 <button type="button" :disabled="!source.downloadable" aria-label="Скачать источник" @click="openKnowledgeSource(source.id)"><UiIcon name="chevronRight" :size="17" /></button>
               </article>
               <p v-if="!knowledgeSources.length" class="empty">Источники пока не добавлены</p>

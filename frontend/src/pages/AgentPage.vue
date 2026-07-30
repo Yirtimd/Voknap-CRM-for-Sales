@@ -15,7 +15,7 @@ function formatPayload(payload: Record<string, unknown>) {
 
 <template>
   <section class="section-grid">
-    <form class="panel wide" @submit.prevent="crmStore.sendAgentMessage">
+    <form class="panel wide" @submit.prevent="crmStore.sendAgentMessage()">
       <h2>AI агент</h2>
       <label>Сообщение<textarea v-model="crmStore.agentForm.value.message" class="agent-input"></textarea></label>
       <div class="button-row">

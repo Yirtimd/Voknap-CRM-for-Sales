@@ -504,18 +504,47 @@ export type KnowledgeSearchResult = {
   document_scope?: string;
   company_id?: string | null;
   deal_id?: string | null;
+  page_number?: number | null;
   text: string;
   score: number;
   chunk_index: number;
+  retrieval_method?: "hybrid" | "semantic" | "lexical";
 };
 
 export type KnowledgeAskResponse = {
+  query_id: string;
   answer: string;
   citations: KnowledgeSearchResult[];
   scope: "global" | "company" | "deal";
   company_id: string | null;
   deal_id: string | null;
+  document_id: string | null;
   include_global: boolean;
+  retrieval_mode: string;
+};
+
+export type AgentContext = {
+  type: "workspace" | "knowledge" | "company" | "deal" | "document";
+  company_id: string | null;
+  deal_id: string | null;
+  document_id: string | null;
+  include_global: boolean;
+  page_path?: string | null;
+};
+
+export type AgentSource = {
+  document_id: string;
+  document_title: string;
+  document_scope: string;
+  company_id: string | null;
+  deal_id: string | null;
+  chunk_id: string;
+  chunk_index: number;
+  page_number: number | null;
+  score: number;
+  text: string;
+  retrieval_method: "hybrid" | "semantic" | "lexical";
+  download_url: string | null;
 };
 
 export type AgentAction = {
@@ -529,9 +558,13 @@ export type AgentAction = {
 };
 
 export type AgentChatResponse = {
+  message_id: string;
+  query_id: string | null;
   answer: string;
   actions: AgentAction[];
-  sources: Record<string, unknown>[];
+  sources: AgentSource[];
+  intent: string;
+  context: AgentContext;
 };
 
 export type CompanyCopilot = {
@@ -584,6 +617,10 @@ export type AgentHistoryMessage = {
   id: string;
   role: string;
   content: string;
+  intent: string;
+  context: AgentContext;
+  sources: AgentSource[];
+  query_id: string | null;
   created_at: string;
 };
 

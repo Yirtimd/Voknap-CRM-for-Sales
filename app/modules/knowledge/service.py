@@ -1,11 +1,13 @@
 import hashlib
+import json
 import math
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -25,6 +27,14 @@ class RankedChunk:
     chunk: KnowledgeChunk
     document: KnowledgeDocument
     score: float
+    retrieval_method: str = "hybrid"
+
+
+@dataclass
+class KnowledgeAnswer:
+    answer: str
+    chunks: list[RankedChunk]
+    query: KnowledgeQuery
 
 
 class EmbeddingService:
@@ -139,6 +149,7 @@ class KnowledgeService:
         visibility: str = "global",
         extraction_method: str = "manual",
         source_pages: int | None = None,
+        page_texts: tuple[str, ...] | None = None,
         commit: bool = True,
     ) -> KnowledgeDocument:
         self._validate_scope_context(tenant_id, visibility, company_id, deal_id)
@@ -156,13 +167,13 @@ class KnowledgeService:
         self.db.add(document)
         self.db.flush()
 
-        chunks = self._split_text(text)
-        for offset in range(0, len(chunks), 32):
-            chunk_batch = chunks[offset : offset + 32]
-            embeddings = self.embedding_service.embed_many(chunk_batch)
+        chunk_specs = self._split_source(text, page_texts)
+        for offset in range(0, len(chunk_specs), 32):
+            chunk_batch = chunk_specs[offset : offset + 32]
+            embeddings = self.embedding_service.embed_many([item[0] for item in chunk_batch])
             if len(embeddings) != len(chunk_batch):
                 raise RuntimeError("Embedding provider returned an unexpected vector count")
-            for index, (chunk_text, embedding) in enumerate(
+            for index, ((chunk_text, page_number), embedding) in enumerate(
                 zip(chunk_batch, embeddings, strict=True),
                 start=offset,
             ):
@@ -174,6 +185,7 @@ class KnowledgeService:
                         company_id=company_id,
                         deal_id=deal_id,
                         chunk_index=index,
+                        page_number=page_number,
                         text=chunk_text,
                         embedding_vector=embedding,
                         **self.embedding_service.metadata(len(embedding)),
@@ -232,6 +244,7 @@ class KnowledgeService:
                 visibility=scope,
                 extraction_method=parsed.extraction_method,
                 source_pages=parsed.source_pages,
+                page_texts=parsed.pages,
                 commit=False,
             )
             company_file.download_url = f"/knowledge/documents/{document.id}/download"
@@ -267,9 +280,18 @@ class KnowledgeService:
         scope: str = "global",
         company_id: UUID | None = None,
         deal_id: UUID | None = None,
+        document_id: UUID | None = None,
         include_global: bool = False,
     ) -> list[RankedChunk]:
         self._validate_scope_context(tenant_id, scope, company_id, deal_id)
+        self._validate_document_context(
+            tenant_id,
+            document_id,
+            scope,
+            company_id,
+            deal_id,
+            include_global,
+        )
         query_embedding = self.embedding_service.embed(query)
         rows_query = (
             self.db.query(KnowledgeChunk, KnowledgeDocument)
@@ -281,19 +303,52 @@ class KnowledgeService:
                 self._embedding_identity_filter(len(query_embedding)),
             )
         )
+        if document_id is not None:
+            rows_query = rows_query.filter(KnowledgeChunk.document_id == document_id)
 
         if self.db.get_bind().dialect.name == "postgresql":
             distance = KnowledgeChunk.embedding_vector.cosine_distance(query_embedding)
-            rows = rows_query.add_columns(distance.label("distance")).order_by(distance).limit(limit).all()
-            return [
-                RankedChunk(chunk=chunk, document=document, score=1.0 - float(distance_value))
-                for chunk, document, distance_value in rows
-            ]
+            candidate_limit = min(100, max(20, limit * 4))
+            vector_rows = (
+                rows_query.add_columns(distance.label("distance"))
+                .order_by(distance)
+                .limit(candidate_limit)
+                .all()
+            )
+            search_vector = func.to_tsvector("simple", KnowledgeChunk.text)
+            search_query = func.websearch_to_tsquery("simple", query)
+            lexical_rank = func.ts_rank_cd(search_vector, search_query)
+            lexical_rows = (
+                rows_query.add_columns(lexical_rank.label("lexical_rank"))
+                .filter(search_vector.op("@@")(search_query))
+                .order_by(lexical_rank.desc())
+                .limit(candidate_limit)
+                .all()
+            )
+            return self._merge_hybrid_results(
+                query,
+                query_embedding,
+                vector_rows,
+                lexical_rows,
+                limit,
+            )
 
         ranked: list[RankedChunk] = []
         for chunk, document in rows_query.all():
-            score = self._cosine_similarity(query_embedding, chunk.embedding_vector)
-            ranked.append(RankedChunk(chunk=chunk, document=document, score=score))
+            semantic_score = self._cosine_similarity(query_embedding, chunk.embedding_vector)
+            lexical_score = self._lexical_similarity(query, chunk.text)
+            score = 0.7 * max(0.0, semantic_score) + 0.3 * lexical_score
+            method = "hybrid" if semantic_score > 0 and lexical_score > 0 else (
+                "semantic" if semantic_score > 0 else "lexical"
+            )
+            ranked.append(
+                RankedChunk(
+                    chunk=chunk,
+                    document=document,
+                    score=score,
+                    retrieval_method=method,
+                )
+            )
 
         return sorted(ranked, key=lambda item: item.score, reverse=True)[:limit]
 
@@ -327,8 +382,9 @@ class KnowledgeService:
         scope: str = "global",
         company_id: UUID | None = None,
         deal_id: UUID | None = None,
+        document_id: UUID | None = None,
         include_global: bool = False,
-    ) -> tuple[str, list[RankedChunk]]:
+    ) -> KnowledgeAnswer:
         ranked_chunks = self.search(
             tenant_id=tenant_id,
             query=question,
@@ -336,16 +392,39 @@ class KnowledgeService:
             scope=scope,
             company_id=company_id,
             deal_id=deal_id,
+            document_id=document_id,
             include_global=include_global,
         )
-        if not ranked_chunks or ranked_chunks[0].score <= 0:
-            answer = "Не нашел ответ в выбранной базе знаний."
-            self._save_query(tenant_id, user_id, question, answer, scope, company_id, deal_id, include_global)
-            return answer, []
+        if not ranked_chunks or ranked_chunks[0].score <= 0.05:
+            answer = "Не нашел подтвержденный ответ в выбранных источниках."
+            query_row = self._save_query(
+                tenant_id,
+                user_id,
+                question,
+                answer,
+                scope,
+                company_id,
+                deal_id,
+                document_id,
+                include_global,
+                [],
+            )
+            return KnowledgeAnswer(answer=answer, chunks=[], query=query_row)
 
         answer = self._grounded_answer(question, ranked_chunks, scope)
-        self._save_query(tenant_id, user_id, question, answer, scope, company_id, deal_id, include_global)
-        return answer, ranked_chunks
+        query_row = self._save_query(
+            tenant_id,
+            user_id,
+            question,
+            answer,
+            scope,
+            company_id,
+            deal_id,
+            document_id,
+            include_global,
+            ranked_chunks,
+        )
+        return KnowledgeAnswer(answer=answer, chunks=ranked_chunks, query=query_row)
 
     def _grounded_answer(self, question: str, ranked_chunks: list[RankedChunk], scope: str) -> str:
         llm_api_key = settings.llm_api_key or settings.openai_api_key
@@ -402,21 +481,64 @@ class KnowledgeService:
         scope: str,
         company_id: UUID | None,
         deal_id: UUID | None,
+        document_id: UUID | None,
         include_global: bool,
-    ) -> None:
-        self.db.add(
-            KnowledgeQuery(
-                tenant_id=tenant_id,
-                user_id=user_id,
-                scope=scope,
-                company_id=company_id,
-                deal_id=deal_id,
-                include_global=include_global,
-                question=question,
-                answer=answer,
-            )
+        ranked_chunks: list[RankedChunk],
+    ) -> KnowledgeQuery:
+        sources = [
+            {
+                "document_id": str(item.document.id),
+                "chunk_id": str(item.chunk.id),
+                "page_number": item.chunk.page_number,
+                "score": item.score,
+                "retrieval_method": item.retrieval_method,
+            }
+            for item in ranked_chunks
+        ]
+        query_row = KnowledgeQuery(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            scope=scope,
+            company_id=company_id,
+            deal_id=deal_id,
+            document_id=document_id,
+            include_global=include_global,
+            question=question,
+            answer=answer,
+            retrieval_mode="hybrid",
+            sources_json=json.dumps(sources),
+            top_score=ranked_chunks[0].score if ranked_chunks else None,
         )
+        self.db.add(query_row)
         self.db.commit()
+        self.db.refresh(query_row)
+        return query_row
+
+    def save_feedback(
+        self,
+        tenant_id: UUID,
+        user_id: UUID,
+        query_id: UUID,
+        rating: str,
+        comment: str | None,
+    ) -> KnowledgeQuery | None:
+        query_row = (
+            self.db.query(KnowledgeQuery)
+            .filter(
+                KnowledgeQuery.id == query_id,
+                KnowledgeQuery.tenant_id == tenant_id,
+                KnowledgeQuery.user_id == user_id,
+            )
+            .one_or_none()
+        )
+        if query_row is None:
+            return None
+        query_row.feedback_rating = rating
+        query_row.feedback_comment = (comment or "").strip() or None
+        query_row.feedback_at = datetime.now(timezone.utc)
+        self.db.commit()
+        self.db.refresh(query_row)
+        return query_row
 
     def _validate_scope_context(
         self,
@@ -473,6 +595,36 @@ class KnowledgeService:
             )
         return or_(global_filter, scoped_filter) if include_global else scoped_filter
 
+    def _validate_document_context(
+        self,
+        tenant_id: UUID,
+        document_id: UUID | None,
+        scope: str,
+        company_id: UUID | None,
+        deal_id: UUID | None,
+        include_global: bool,
+    ) -> None:
+        if document_id is None:
+            return
+        scope_filter = self._document_scope_filter(
+            scope,
+            company_id,
+            deal_id,
+            include_global,
+        )
+        document = (
+            self.db.query(KnowledgeDocument)
+            .filter(
+                KnowledgeDocument.tenant_id == tenant_id,
+                KnowledgeDocument.id == document_id,
+                KnowledgeDocument.status == "ready",
+                scope_filter,
+            )
+            .one_or_none()
+        )
+        if document is None:
+            raise ValueError("Document does not belong to selected knowledge context")
+
     def _chunk_scope_filter(
         self,
         scope: str,
@@ -510,6 +662,62 @@ class KnowledgeService:
                 break
             start = max(0, end - overlap)
         return chunks
+
+    def _split_source(
+        self,
+        text: str,
+        page_texts: tuple[str, ...] | None,
+    ) -> list[tuple[str, int | None]]:
+        if page_texts is None:
+            return [(chunk, None) for chunk in self._split_text(text)]
+        chunks: list[tuple[str, int | None]] = []
+        for page_number, page_text in enumerate(page_texts, start=1):
+            chunks.extend((chunk, page_number) for chunk in self._split_text(page_text))
+        return chunks
+
+    def _merge_hybrid_results(
+        self,
+        query: str,
+        query_embedding: list[float],
+        vector_rows: list[tuple],
+        lexical_rows: list[tuple],
+        limit: int,
+    ) -> list[RankedChunk]:
+        candidates: dict[UUID, tuple[KnowledgeChunk, KnowledgeDocument, float]] = {}
+        for chunk, document, distance in vector_rows:
+            candidates[chunk.id] = (chunk, document, 1.0 - float(distance))
+        for chunk, document, _rank in lexical_rows:
+            if chunk.id not in candidates:
+                candidates[chunk.id] = (
+                    chunk,
+                    document,
+                    self._cosine_similarity(query_embedding, list(chunk.embedding_vector)),
+                )
+
+        lexical_ids = {chunk.id for chunk, _document, _rank in lexical_rows}
+        ranked: list[RankedChunk] = []
+        for chunk, document, semantic_score in candidates.values():
+            lexical_score = self._lexical_similarity(query, chunk.text)
+            score = 0.7 * max(0.0, semantic_score) + 0.3 * lexical_score
+            method = "hybrid" if chunk.id in lexical_ids and semantic_score > 0 else (
+                "lexical" if chunk.id in lexical_ids else "semantic"
+            )
+            ranked.append(
+                RankedChunk(
+                    chunk=chunk,
+                    document=document,
+                    score=score,
+                    retrieval_method=method,
+                )
+            )
+        return sorted(ranked, key=lambda item: item.score, reverse=True)[:limit]
+
+    def _lexical_similarity(self, query: str, text: str) -> float:
+        query_terms = set(re.findall(r"[\wа-яА-ЯёЁ]+", query.lower()))
+        text_terms = set(re.findall(r"[\wа-яА-ЯёЁ]+", text.lower()))
+        if not query_terms or not text_terms:
+            return 0.0
+        return len(query_terms & text_terms) / len(query_terms)
 
     def _cosine_similarity(self, left: list[float], right: list[float]) -> float:
         if not left or not right or len(left) != len(right):

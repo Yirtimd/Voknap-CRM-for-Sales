@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 
 import { statusLabel } from "../../design-system/statusDictionary";
 import UiIcon from "../ui/UiIcon.vue";
@@ -10,18 +10,40 @@ const emit = defineEmits<{ close: [] }>();
 
 const messagesEl = ref<HTMLElement | null>(null);
 
-const importantPrompts = [
-  "Что нужно сделать сегодня?",
-  "Найди риски в воронке",
-  "Какие сделки без следующего шага?",
-  "Подготовь план дня менеджера"
-];
+const importantPrompts = computed(() => {
+  if (crmStore.agentContext.value.type === "document") {
+    return ["Сделай выжимку документа", "Найди суммы и сроки", "Какие обязательства указаны?", "Что требует внимания?"];
+  }
+  if (crmStore.agentContext.value.type === "deal") {
+    return ["Сделай сводку по сделке", "Какие риски у сделки?", "Найди следующий шаг", "Что сказано в документах?"];
+  }
+  if (crmStore.agentContext.value.type === "company") {
+    return ["Сделай сводку по компании", "Какие открытые задачи?", "Что известно из документов?", "Подготовь встречу"];
+  }
+  return ["Что нужно сделать сегодня?", "Найди риски в воронке", "Какие сделки без следующего шага?", "Ответь по базе знаний"];
+});
 
-const recentPrompts = [
-  { text: "Дай сводку по CRM", time: "10:30" },
-  { text: "Какие сделки без следующего шага?", time: "Вчера" },
-  { text: "Создай задачу позвонить клиенту", time: "Вчера" }
-];
+const contextValue = computed(() => {
+  const context = crmStore.agentContext.value;
+  if (context.type === "document" && context.document_id) return `document:${context.document_id}`;
+  if (context.type === "deal" && context.deal_id) return `deal:${context.deal_id}`;
+  if (context.type === "company" && context.company_id) return `company:${context.company_id}`;
+  return context.type;
+});
+
+const contextLabel = computed(() => {
+  const context = crmStore.agentContext.value;
+  if (context.type === "document") {
+    return crmStore.knowledgeDocuments.value.find((item) => item.id === context.document_id)?.title ?? "Выбранный документ";
+  }
+  if (context.type === "deal") {
+    return crmStore.deals.value.find((item) => item.id === context.deal_id)?.title ?? "Текущая сделка";
+  }
+  if (context.type === "company") {
+    return crmStore.companies.value.find((item) => item.id === context.company_id)?.name ?? "Текущая компания";
+  }
+  return context.type === "knowledge" ? "Вся база знаний" : "Вся CRM";
+});
 
 watch(
   () => props.open,
@@ -41,6 +63,31 @@ async function send(message?: string) {
   messagesEl.value?.scrollTo({ top: messagesEl.value.scrollHeight, behavior: "smooth" });
 }
 
+function selectContext(event: Event) {
+  const value = (event.target as HTMLSelectElement).value;
+  const [type, id] = value.split(":");
+  if (type === "document") {
+    const document = crmStore.knowledgeDocuments.value.find((item) => item.id === id);
+    crmStore.setAgentContext({
+      type: "document",
+      document_id: id,
+      company_id: document?.company_id ?? null,
+      deal_id: document?.deal_id ?? null
+    });
+    return;
+  }
+  if (type === "deal") {
+    const deal = crmStore.deals.value.find((item) => item.id === id);
+    crmStore.setAgentContext({ type: "deal", deal_id: id, company_id: deal?.company_id ?? null });
+    return;
+  }
+  if (type === "company") {
+    crmStore.setAgentContext({ type: "company", company_id: id });
+    return;
+  }
+  crmStore.setAgentContext({ type: type === "knowledge" ? "knowledge" : "workspace" });
+}
+
 function formatPayload(payload: Record<string, unknown>) {
   return JSON.stringify(payload, null, 2);
 }
@@ -55,6 +102,28 @@ function formatPayload(payload: Record<string, unknown>) {
       </div>
       <button class="secondary agent-close" type="button" aria-label="Закрыть AI-агента" @click="emit('close')">Закрыть</button>
     </header>
+
+    <section class="agent-context-picker">
+      <span>Контекст</span>
+      <strong>{{ contextLabel }}</strong>
+      <select :value="contextValue" aria-label="Контекст AI-помощника" @change="selectContext">
+        <option value="workspace">Вся CRM</option>
+        <option value="knowledge">Вся база знаний</option>
+        <optgroup label="Компании">
+          <option v-for="company in crmStore.companies.value" :key="company.id" :value="`company:${company.id}`">{{ company.name }}</option>
+        </optgroup>
+        <optgroup label="Сделки">
+          <option v-for="deal in crmStore.deals.value" :key="deal.id" :value="`deal:${deal.id}`">{{ deal.title }}</option>
+        </optgroup>
+        <optgroup label="Документы">
+          <option v-for="document in crmStore.knowledgeDocuments.value" :key="document.id" :value="`document:${document.id}`">{{ document.title }}</option>
+        </optgroup>
+      </select>
+      <label v-if="['company', 'deal'].includes(crmStore.agentContext.value.type)">
+        <input v-model="crmStore.agentContext.value.include_global" type="checkbox" />
+        Добавлять общую базу знаний
+      </label>
+    </section>
 
     <section class="agent-card agent-summary">
       <header>
@@ -86,17 +155,36 @@ function formatPayload(payload: Record<string, unknown>) {
       <article v-for="message in crmStore.agentHistory.value" :key="message.id" class="agent-message" :class="message.role">
         <strong>{{ message.role === "user" ? "Вы" : "Агент" }}</strong>
         <p>{{ message.content }}</p>
+        <section v-if="message.role === 'assistant' && message.sources.length" class="agent-sources">
+          <span>Источники: {{ message.sources.length }}</span>
+          <button
+            v-for="source in message.sources.slice(0, 3)"
+            :key="source.chunk_id"
+            type="button"
+            class="secondary"
+            :disabled="!source.download_url"
+            @click="crmStore.downloadAgentSource(source)"
+          >
+            {{ source.document_title }}<small v-if="source.page_number"> · стр. {{ source.page_number }}</small>
+          </button>
+        </section>
+        <div v-if="message.role === 'assistant' && message.query_id" class="agent-feedback">
+          <span>Ответ полезен?</span>
+          <button
+            type="button"
+            class="secondary"
+            :class="{ active: crmStore.agentFeedback.value[message.query_id] === 'up' }"
+            @click="crmStore.sendAgentFeedback(message.query_id, 'up')"
+          >Да</button>
+          <button
+            type="button"
+            class="secondary"
+            :class="{ active: crmStore.agentFeedback.value[message.query_id] === 'down' }"
+            @click="crmStore.sendAgentFeedback(message.query_id, 'down')"
+          >Нет</button>
+        </div>
       </article>
       <p v-if="!crmStore.agentHistory.value.length" class="empty">Истории пока нет. Выберите быстрый запрос или напишите сообщение.</p>
-    </section>
-
-    <section class="agent-card agent-recent">
-      <h3>Недавние запросы</h3>
-      <button v-for="prompt in recentPrompts" :key="prompt.text" type="button" @click="send(prompt.text)">
-        <span class="prompt-icon doc"><UiIcon name="file" :size="16" /></span>
-        <strong>{{ prompt.text }}</strong>
-        <small>{{ prompt.time }}</small>
-      </button>
     </section>
 
     <section v-if="crmStore.agentActions.value.length" class="agent-actions">
@@ -123,3 +211,16 @@ function formatPayload(payload: Record<string, unknown>) {
     </form>
   </aside>
 </template>
+
+<style scoped>
+.agent-context-picker { display:grid; gap:6px; margin:0 14px; padding:12px; border:1px solid var(--line); border-radius:12px; background:var(--surface-solid); }
+.agent-context-picker > span { color:var(--text-muted); font-size:11px; text-transform:uppercase; }
+.agent-context-picker select { width:100%; min-height:38px; }
+.agent-context-picker label { display:flex; align-items:center; gap:7px; color:var(--text-muted); font-size:12px; }
+.agent-sources { display:grid; gap:5px; margin-top:10px; padding-top:8px; border-top:1px solid var(--line); }
+.agent-sources > span { color:var(--text-muted); font-size:11px; }
+.agent-sources button { width:100%; justify-content:flex-start; overflow:hidden; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+.agent-feedback { display:flex; align-items:center; gap:5px; margin-top:8px; color:var(--text-muted); font-size:11px; }
+.agent-feedback button { min-height:28px; padding:3px 9px; font-size:11px; }
+.agent-feedback button.active { border-color:var(--primary); color:var(--primary); }
+</style>

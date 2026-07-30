@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -6,8 +7,12 @@ from pydantic import BaseModel, Field
 
 class AgentChatRequest(BaseModel):
     message: str = Field(min_length=2)
+    context_type: Literal["workspace", "knowledge", "company", "deal", "document"] = "workspace"
     company_id: UUID | None = None
     deal_id: UUID | None = None
+    document_id: UUID | None = None
+    include_global: bool = False
+    page_path: str | None = Field(default=None, max_length=500)
 
 
 class AgentActionResponse(BaseModel):
@@ -21,15 +26,23 @@ class AgentActionResponse(BaseModel):
 
 
 class AgentChatResponse(BaseModel):
+    message_id: UUID
+    query_id: UUID | None = None
     answer: str
     actions: list[AgentActionResponse] = Field(default_factory=list)
     sources: list[dict] = Field(default_factory=list)
+    intent: str
+    context: dict = Field(default_factory=dict)
 
 
 class AgentHistoryMessage(BaseModel):
     id: UUID
     role: str
     content: str
+    intent: str = "knowledge"
+    context: dict = Field(default_factory=dict)
+    sources: list[dict] = Field(default_factory=list)
+    query_id: UUID | None = None
     created_at: datetime
 
 

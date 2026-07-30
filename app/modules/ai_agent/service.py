@@ -1,5 +1,6 @@
 import json
 import re
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -9,8 +10,20 @@ from app.modules.activity.service import ActivityService
 from app.modules.ai_agent.models import AgentAction, AgentMessage
 from app.modules.analytics.service import AnalyticsService
 from app.modules.knowledge.service import KnowledgeService
+from app.modules.knowledge.models import KnowledgeDocument
 from app.modules.sales.models import Company, Contact, CustomerInsight, Deal, Lead, NextAction, PipelineStage, Task
 from app.modules.sales.stages import stage_label_ru
+
+
+@dataclass
+class AgentChatResult:
+    answer: str
+    actions: list[AgentAction]
+    sources: list[dict]
+    message: AgentMessage
+    query_id: UUID | None
+    intent: str
+    context: dict
 
 
 class AgentService:
@@ -23,16 +36,37 @@ class AgentService:
         tenant_id: UUID,
         user_id: UUID,
         message: str,
+        context_type: str = "workspace",
         company_id: UUID | None = None,
         deal_id: UUID | None = None,
-    ) -> tuple[str, list[AgentAction], list[dict]]:
-        self._save_message(tenant_id, user_id, "user", message)
+        document_id: UUID | None = None,
+        include_global: bool = False,
+        page_path: str | None = None,
+    ) -> AgentChatResult:
+        context = {
+            "type": context_type,
+            "company_id": str(company_id) if company_id else None,
+            "deal_id": str(deal_id) if deal_id else None,
+            "document_id": str(document_id) if document_id else None,
+            "include_global": include_global,
+            "page_path": page_path,
+        }
+        self._save_message(
+            tenant_id,
+            user_id,
+            "user",
+            message,
+            intent="request",
+            context=context,
+        )
 
         lowered = message.lower()
         actions: list[AgentAction] = []
         sources: list[dict] = []
+        query_id: UUID | None = None
 
         if self._looks_like_task_request(lowered):
+            intent = "create_task"
             action = self._propose_task(tenant_id, user_id, message)
             if action is None:
                 answer = "Для создания задачи нужна компания или сделка. Укажи название сделки или оставь в workspace одну компанию."
@@ -40,6 +74,7 @@ class AgentService:
                 actions.append(action)
                 answer = "Могу создать задачу. Проверь предложение и подтверди действие."
         elif self._looks_like_deal_move_request(lowered):
+            intent = "move_deal"
             action = self._propose_deal_move(tenant_id, user_id, message)
             if action is None:
                 answer = "Не нашла подходящую сделку или этап. Укажи название сделки и этап точнее."
@@ -47,12 +82,41 @@ class AgentService:
                 actions.append(action)
                 answer = "Могу перенести сделку. Проверь предложение и подтверди действие."
         elif self._looks_like_summary_request(lowered):
+            intent = "crm_summary"
             answer = self._summarize_crm(tenant_id)
         else:
-            answer, sources = self._answer_from_knowledge(tenant_id, user_id, message, company_id=company_id, deal_id=deal_id)
+            intent = "knowledge"
+            answer, sources, query_id, context = self._answer_from_knowledge(
+                tenant_id,
+                user_id,
+                message,
+                context_type=context_type,
+                company_id=company_id,
+                deal_id=deal_id,
+                document_id=document_id,
+                include_global=include_global,
+                page_path=page_path,
+            )
 
-        self._save_message(tenant_id, user_id, "assistant", answer)
-        return answer, actions, sources
+        assistant_message = self._save_message(
+            tenant_id,
+            user_id,
+            "assistant",
+            answer,
+            intent=intent,
+            context=context,
+            sources=sources,
+            knowledge_query_id=query_id,
+        )
+        return AgentChatResult(
+            answer=answer,
+            actions=actions,
+            sources=sources,
+            message=assistant_message,
+            query_id=query_id,
+            intent=intent,
+            context=context,
+        )
 
     def list_history(self, tenant_id: UUID, limit: int = 30) -> list[AgentMessage]:
         return (
@@ -458,9 +522,28 @@ class AgentService:
         tenant_id: UUID,
         user_id: UUID,
         message: str,
+        context_type: str = "workspace",
         company_id: UUID | None = None,
         deal_id: UUID | None = None,
-    ) -> tuple[str, list[dict]]:
+        document_id: UUID | None = None,
+        include_global: bool = False,
+        page_path: str | None = None,
+    ) -> tuple[str, list[dict], UUID, dict]:
+        document = None
+        if document_id is not None:
+            document = (
+                self.db.query(KnowledgeDocument)
+                .filter(
+                    KnowledgeDocument.tenant_id == tenant_id,
+                    KnowledgeDocument.id == document_id,
+                    KnowledgeDocument.status == "ready",
+                )
+                .one_or_none()
+            )
+            if document is None:
+                raise ValueError("Document does not belong to current workspace")
+            company_id = document.company_id
+            deal_id = document.deal_id
         if deal_id and not company_id:
             deal = (
                 self.db.query(Deal)
@@ -471,7 +554,7 @@ class AgentService:
             if deal is None:
                 deal_id = None
         scope = "deal" if company_id and deal_id else "company" if company_id else "global"
-        answer, ranked_chunks = self.knowledge_service.answer(
+        result = self.knowledge_service.answer(
             tenant_id,
             user_id,
             message,
@@ -479,7 +562,8 @@ class AgentService:
             scope=scope,
             company_id=company_id,
             deal_id=deal_id,
-            include_global=False,
+            document_id=document_id,
+            include_global=include_global if document_id is None else False,
         )
         sources = [
             {
@@ -489,12 +573,32 @@ class AgentService:
                 "company_id": str(item.document.company_id) if item.document.company_id else None,
                 "deal_id": str(item.document.deal_id) if item.document.deal_id else None,
                 "chunk_id": str(item.chunk.id),
+                "chunk_index": item.chunk.chunk_index,
+                "page_number": item.chunk.page_number,
                 "score": item.score,
                 "text": item.chunk.text[:500],
+                "retrieval_method": item.retrieval_method,
+                "download_url": (
+                    f"/knowledge/documents/{item.document.id}/download"
+                    if item.document.file_id
+                    else None
+                ),
             }
-            for item in ranked_chunks
+            for item in result.chunks
         ]
-        return answer, sources
+        normalized_context = {
+            "type": "document" if document_id else (
+                "deal" if deal_id else "company" if company_id else (
+                    "knowledge" if context_type == "knowledge" else "workspace"
+                )
+            ),
+            "company_id": str(company_id) if company_id else None,
+            "deal_id": str(deal_id) if deal_id else None,
+            "document_id": str(document_id) if document_id else None,
+            "include_global": include_global if document_id is None else False,
+            "page_path": page_path,
+        }
+        return result.answer, sources, result.query.id, normalized_context
 
     def _summarize_crm(self, tenant_id: UUID) -> str:
         leads_count = self.db.query(Lead).filter(Lead.tenant_id == tenant_id).count()
@@ -585,9 +689,32 @@ class AgentService:
         cleaned = re.sub(r"\s+", " ", cleaned).strip(" .")
         return cleaned[:255] if cleaned else "Связаться с клиентом"
 
-    def _save_message(self, tenant_id: UUID, user_id: UUID, role: str, content: str) -> None:
-        self.db.add(AgentMessage(tenant_id=tenant_id, user_id=user_id, role=role, content=content))
+    def _save_message(
+        self,
+        tenant_id: UUID,
+        user_id: UUID,
+        role: str,
+        content: str,
+        *,
+        intent: str = "knowledge",
+        context: dict | None = None,
+        sources: list[dict] | None = None,
+        knowledge_query_id: UUID | None = None,
+    ) -> AgentMessage:
+        message = AgentMessage(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            role=role,
+            content=content,
+            intent=intent,
+            context_json=json.dumps(context or {}, ensure_ascii=False),
+            sources_json=json.dumps(sources or [], ensure_ascii=False),
+            knowledge_query_id=knowledge_query_id,
+        )
+        self.db.add(message)
         self.db.commit()
+        self.db.refresh(message)
+        return message
 
     def _ensure_pending_action(self, tenant_id: UUID, user_id: UUID, action_type: str, payload: dict) -> AgentAction:
         payload_key = payload.get("company_id") or payload.get("deal_id") or ""

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import voknapLogo from "../assets/voknap-logo.png";
@@ -48,7 +48,7 @@ const pageTitle = computed(() => String(route.meta.title ?? "Рабочее пр
 const pageEyebrow = computed(() => String(route.meta.eyebrow ?? "CRM"));
 const isHome = computed(() => route.path === "/home");
 const isTasks = computed(() => route.path === "/tasks");
-const isAgentOpen = ref(false);
+const isAgentOpen = crmStore.agentPanelOpen;
 const isMobileMoreOpen = ref(false);
 const sidebarMode = ref<"full" | "compact" | "hidden">(
   (localStorage.getItem("cmr_sidebar_mode") as "full" | "compact" | "hidden" | null) ?? "full"
@@ -151,6 +151,43 @@ function setSidebarMode(mode: "full" | "compact" | "hidden") {
 function openTaskCreate() {
   void router.replace({ path: "/tasks", query: { ...route.query, create: "1" } });
 }
+
+function syncAgentRouteContext() {
+  const dealId = typeof route.query.deal === "string" ? route.query.deal : "";
+  const deal = crmStore.deals.value.find((item) => item.id === dealId);
+  if (deal) {
+    crmStore.setAgentContext({
+      type: "deal",
+      company_id: deal.company_id,
+      deal_id: deal.id,
+      page_path: route.fullPath
+    });
+    return;
+  }
+  const companyId = typeof route.query.company === "string" ? route.query.company : "";
+  const company = crmStore.companies.value.find((item) => item.id === companyId);
+  if (company) {
+    crmStore.setAgentContext({
+      type: "company",
+      company_id: company.id,
+      page_path: route.fullPath
+    });
+    return;
+  }
+  if (route.path === "/knowledge" && isAgentOpen.value && crmStore.agentContext.value.type === "document") {
+    return;
+  }
+  crmStore.setAgentContext({
+    type: route.path === "/knowledge" ? "knowledge" : "workspace",
+    page_path: route.fullPath
+  });
+}
+
+watch(
+  [() => route.fullPath, () => crmStore.companies.value.length, () => crmStore.deals.value.length],
+  syncAgentRouteContext,
+  { immediate: true }
+);
 </script>
 
 <template>
@@ -259,7 +296,7 @@ function openTaskCreate() {
             <button type="button" class="secondary home-caret" aria-label="Меню" @click="togglePanel('menu')"><UiIcon name="chevronDown" :size="18" /></button>
             <section v-if="activePanel === 'menu'" class="top-popover action-popover menu-popover">
               <button type="button" @click="navigate('/settings')">Настройки рабочего пространства</button>
-              <button type="button" @click="isAgentOpen = true; activePanel = null">AI-ассистент</button>
+              <button type="button" @click="crmStore.openAgent(crmStore.agentContext.value); activePanel = null">AI-ассистент</button>
               <button type="button" class="danger-item" @click="logout">Выйти</button>
             </section>
           </div>
@@ -291,13 +328,13 @@ function openTaskCreate() {
       class="agent-edge"
       type="button"
       aria-label="Открыть AI агента"
-      @click="isAgentOpen = true"
+      @click="crmStore.openAgent(crmStore.agentContext.value)"
     >
       <UiIcon name="chevronLeft" :size="18" />
     </button>
 
-    <div v-if="isAgentOpen" class="agent-backdrop" @click="isAgentOpen = false"></div>
-    <GlobalAgentSidebar :open="isAgentOpen" @close="isAgentOpen = false" />
+    <div v-if="isAgentOpen" class="agent-backdrop" @click="crmStore.closeAgent"></div>
+    <GlobalAgentSidebar :open="isAgentOpen" @close="crmStore.closeAgent" />
 
     <nav class="mobile-nav" aria-label="Мобильная навигация">
       <RouterLink v-for="item in mobilePrimary" :key="item.to" :to="item.to">

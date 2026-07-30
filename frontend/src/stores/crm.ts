@@ -4,6 +4,7 @@ import { api, apiBlob, apiErrorMessage, emptyToNull, post } from "../api";
 import type {
   AgentAction,
   AgentChatResponse,
+  AgentContext,
   AgentHistoryMessage,
   AnalyticsOverview,
   Activity,
@@ -63,6 +64,16 @@ const knowledgeAnswer = ref<KnowledgeAskResponse | null>(null);
 const agentHistory = ref<AgentHistoryMessage[]>([]);
 const agentActions = ref<AgentAction[]>([]);
 const agentLastResponse = ref<AgentChatResponse | null>(null);
+const agentPanelOpen = ref(false);
+const agentContext = ref<AgentContext>({
+  type: "workspace",
+  company_id: null,
+  deal_id: null,
+  document_id: null,
+  include_global: false,
+  page_path: null
+});
+const agentFeedback = ref<Record<string, "up" | "down">>({});
 const companyCopilot = ref<CompanyCopilot | null>(null);
 const homeCopilot = ref<HomeCopilot | null>(null);
 const connectorDefinitions = ref<ConnectorDefinition[]>([]);
@@ -134,7 +145,7 @@ const knowledgeDocumentForm = ref({
 });
 const knowledgeSearchForm = ref({ query: "Что делать после новой заявки?", limit: 6, scope: "global", include_global: false });
 const knowledgeAskForm = ref({ question: "Что делать после новой заявки?", limit: 6 });
-const agentForm = ref({ message: "Дай сводку по CRM", company_id: "", deal_id: "" });
+const agentForm = ref({ message: "Дай сводку по CRM" });
 const connectorAccountForm = ref({
   connector_code: "email",
   title: "Рабочая почта",
@@ -512,26 +523,35 @@ async function askKnowledge(context: {
   scope?: "global" | "company" | "deal";
   company_id?: string;
   deal_id?: string;
+  document_id?: string;
   include_global?: boolean;
 } = {}): Promise<boolean> {
-  const payload = emptyToNull({
-    ...knowledgeAskForm.value,
-    scope: "global",
-    include_global: false,
-    ...context
-  });
   knowledgeAnswer.value = null;
-  let succeeded = false;
-  await run(async () => {
-    knowledgeAnswer.value = await api<KnowledgeAskResponse>(
-      "/knowledge/ask",
-      post(payload),
-      token.value,
-      tenantId.value
-    );
-    succeeded = true;
-  }, "Ответ готов");
-  return succeeded;
+  const scope = context.scope ?? "global";
+  const response = await sendAgentMessage(
+    knowledgeAskForm.value.question,
+    {
+      type: context.document_id ? "document" : scope === "deal" ? "deal" : scope === "company" ? "company" : "knowledge",
+      company_id: context.company_id ?? null,
+      deal_id: context.deal_id ?? null,
+      document_id: context.document_id ?? null,
+      include_global: context.include_global ?? false,
+      page_path: window.location.pathname + window.location.search
+    }
+  );
+  if (!response?.query_id) return false;
+  knowledgeAnswer.value = {
+    query_id: response.query_id,
+    answer: response.answer,
+    citations: response.sources,
+    scope,
+    company_id: context.company_id ?? null,
+    deal_id: context.deal_id ?? null,
+    document_id: context.document_id ?? null,
+    include_global: context.include_global ?? false,
+    retrieval_mode: "hybrid"
+  };
+  return true;
 }
 
 async function refreshAgent() {
@@ -544,19 +564,79 @@ async function refreshAgent() {
   agentActions.value = actions;
 }
 
-async function sendAgentMessage() {
-  const payload = emptyToNull({ ...agentForm.value });
+function setAgentContext(context: Partial<AgentContext>) {
+  agentContext.value = {
+    type: context.type ?? "workspace",
+    company_id: context.company_id ?? null,
+    deal_id: context.deal_id ?? null,
+    document_id: context.document_id ?? null,
+    include_global: context.include_global ?? false,
+    page_path: context.page_path ?? window.location.pathname + window.location.search
+  };
+}
+
+function openAgent(context: Partial<AgentContext> = {}, message = "") {
+  setAgentContext(context);
+  if (message) agentForm.value.message = message;
+  agentPanelOpen.value = true;
+}
+
+function closeAgent() {
+  agentPanelOpen.value = false;
+}
+
+async function sendAgentMessage(
+  message = agentForm.value.message,
+  context?: Partial<AgentContext>
+): Promise<AgentChatResponse | null> {
+  if (!message.trim()) return null;
+  if (context) setAgentContext(context);
+  const payload = emptyToNull({
+    message,
+    context_type: agentContext.value.type,
+    company_id: agentContext.value.company_id,
+    deal_id: agentContext.value.deal_id,
+    document_id: agentContext.value.document_id,
+    include_global: agentContext.value.include_global,
+    page_path: agentContext.value.page_path
+  });
+  let response: AgentChatResponse | null = null;
   await run(async () => {
-    agentLastResponse.value = await api<AgentChatResponse>(
+    response = await api<AgentChatResponse>(
       "/ai-agent/chat",
       post(payload),
       token.value,
       tenantId.value
     );
+    agentLastResponse.value = response;
     await refreshAgent();
   }, "AI агент ответил");
-  agentForm.value.company_id = "";
-  agentForm.value.deal_id = "";
+  return response;
+}
+
+async function sendAgentFeedback(queryId: string, rating: "up" | "down") {
+  await run(async () => {
+    await api(
+      `/knowledge/queries/${queryId}/feedback`,
+      post({ rating }),
+      token.value,
+      tenantId.value
+    );
+    agentFeedback.value = { ...agentFeedback.value, [queryId]: rating };
+  }, "Оценка ответа сохранена");
+}
+
+async function downloadAgentSource(source: { document_title: string; download_url: string | null }) {
+  if (!source.download_url) return;
+  await run(async () => {
+    const blob = await apiBlob(source.download_url ?? "", token.value, tenantId.value);
+    const url = URL.createObjectURL(blob);
+    const anchor = window.document.createElement("a");
+    anchor.href = url;
+    anchor.download = source.document_title;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }, "Источник скачан");
 }
 
 async function confirmAgentAction(actionId: string) {
@@ -1187,6 +1267,9 @@ export const crmStore = {
   agentHistory,
   agentActions,
   agentLastResponse,
+  agentPanelOpen,
+  agentContext,
+  agentFeedback,
   companyCopilot,
   homeCopilot,
   connectorDefinitions,
@@ -1278,7 +1361,12 @@ export const crmStore = {
   downloadKnowledgeDocument,
   searchKnowledge,
   askKnowledge,
+  setAgentContext,
+  openAgent,
+  closeAgent,
   sendAgentMessage,
+  sendAgentFeedback,
+  downloadAgentSource,
   confirmAgentAction,
   rejectAgentAction,
   createConnectorAccount,

@@ -1,7 +1,17 @@
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from pgvector.sqlalchemy import VECTOR
 
@@ -53,6 +63,13 @@ class KnowledgeChunk(Base):
             ("company_id", "companies"),
             ("deal_id", "deals"),
         ),
+        extra=(
+            Index(
+                "ix_knowledge_chunks_text_search",
+                text("to_tsvector('simple', text)"),
+                postgresql_using="gin",
+            ).ddl_if(dialect="postgresql"),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -66,6 +83,7 @@ class KnowledgeChunk(Base):
     company_id: Mapped[UUID | None] = mapped_column(ForeignKey("companies.id"), index=True)
     deal_id: Mapped[UUID | None] = mapped_column(ForeignKey("deals.id"), index=True)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    page_number: Mapped[int | None] = mapped_column(Integer)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     embedding_vector: Mapped[list[float]] = mapped_column(
         VECTOR(PGVECTOR_DIMENSIONS), nullable=False
@@ -88,8 +106,18 @@ class KnowledgeQuery(Base):
     __tablename__ = "knowledge_queries"
     __table_args__ = tenant_table_args(
         "knowledge_queries",
-        relations=(("company_id", "companies"), ("deal_id", "deals")),
+        relations=(
+            ("company_id", "companies"),
+            ("deal_id", "deals"),
+            ("document_id", "knowledge_documents"),
+        ),
         membership_columns=("user_id",),
+        extra=(
+            CheckConstraint(
+                "feedback_rating IN ('up', 'down') OR feedback_rating IS NULL",
+                name="ck_knowledge_queries_feedback_rating",
+            ),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -98,7 +126,16 @@ class KnowledgeQuery(Base):
     scope: Mapped[str] = mapped_column(String(40), default="global", index=True)
     company_id: Mapped[UUID | None] = mapped_column(ForeignKey("companies.id"), index=True)
     deal_id: Mapped[UUID | None] = mapped_column(ForeignKey("deals.id"), index=True)
+    document_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("knowledge_documents.id"), index=True
+    )
     include_global: Mapped[bool] = mapped_column(default=False)
     question: Mapped[str] = mapped_column(Text, nullable=False)
     answer: Mapped[str] = mapped_column(Text, nullable=False)
+    retrieval_mode: Mapped[str] = mapped_column(String(40), default="hybrid", nullable=False)
+    sources_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    top_score: Mapped[float | None] = mapped_column(Float)
+    feedback_rating: Mapped[str | None] = mapped_column(String(10))
+    feedback_comment: Mapped[str | None] = mapped_column(Text)
+    feedback_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

@@ -207,6 +207,29 @@ function openSelectedCompany() {
   void router.push(`/companies?company=${companyId}`);
 }
 
+function openDealAgent() {
+  if (!selectedDeal.value) return;
+  crmStore.openAgent({
+    type: "deal",
+    company_id: selectedDeal.value.company_id,
+    deal_id: selectedDeal.value.id
+  });
+}
+
+function askDealDocument(documentId: string) {
+  const document = crmStore.knowledgeDocuments.value.find((item) => item.id === documentId);
+  if (!document) return;
+  crmStore.openAgent(
+    {
+      type: "document",
+      document_id: document.id,
+      company_id: document.company_id ?? null,
+      deal_id: document.deal_id ?? null
+    },
+    `Что важно знать из документа «${document.title}»?`
+  );
+}
+
 function dueLabel(deal: Deal) {
   const task = openTasks(deal)[0];
   if (task?.due_at) return new Date(task.due_at).toLocaleDateString("ru-RU", { month: "short", day: "numeric" });
@@ -516,6 +539,7 @@ watch(
             </div>
           </div>
           <div class="deal-window-actions">
+            <button class="secondary" type="button" @click="openDealAgent"><UiIcon name="sparkles" :size="16" /> AI</button>
             <button class="secondary" type="button" @click="isDealCrudOpen = true">Редактировать</button>
             <button class="secondary icon-button" type="button" title="Скопировать ссылку" aria-label="Скопировать ссылку" @click="copyDealLink"><UiIcon name="externalLink" :size="17" /></button>
             <button class="secondary icon-button" type="button" title="Скопировать сводку" aria-label="Скопировать сводку" @click="copyDealSummary">⧉</button>
@@ -656,6 +680,7 @@ watch(
                   <strong>{{ document.title }}</strong>
                   <small>{{ document.source_type }} · {{ document.status }}</small>
                 </div>
+                <button type="button" class="secondary text-button" @click="askDealDocument(document.id)">Спросить</button>
               </div>
             </div>
             <p v-else class="empty">Связанных файлов пока нет.</p>

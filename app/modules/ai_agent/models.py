@@ -14,13 +14,21 @@ def utc_now() -> datetime:
 
 class AgentMessage(Base):
     __tablename__ = "agent_messages"
-    __table_args__ = tenant_table_args("agent_messages", membership_columns=("user_id",))
+    __table_args__ = tenant_table_args(
+        "agent_messages",
+        relations=(("knowledge_query_id", "knowledge_queries"),),
+        membership_columns=("user_id",),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     tenant_id: Mapped[UUID] = mapped_column(index=True, nullable=False)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     role: Mapped[str] = mapped_column(String(40), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    intent: Mapped[str] = mapped_column(String(40), default="knowledge", nullable=False)
+    context_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    sources_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    knowledge_query_id: Mapped[UUID | None] = mapped_column(index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 

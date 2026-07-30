@@ -18,6 +18,8 @@ from app.modules.knowledge.schemas import (
     DocumentCreate,
     DocumentResponse,
     KnowledgeScope,
+    QueryFeedbackRequest,
+    QueryFeedbackResponse,
     SearchRequest,
     SearchResultResponse,
 )
@@ -220,6 +222,7 @@ def search(
             scope=payload.scope,
             company_id=payload.company_id,
             deal_id=payload.deal_id,
+            document_id=payload.document_id,
             include_global=payload.include_global,
         )
     except ValueError as error:
@@ -232,9 +235,11 @@ def search(
             document_scope=item.document.visibility,
             company_id=item.document.company_id,
             deal_id=item.document.deal_id,
+            page_number=item.chunk.page_number,
             text=item.chunk.text,
             score=item.score,
             chunk_index=item.chunk.chunk_index,
+            retrieval_method=item.retrieval_method,
         )
         for item in results
     ]
@@ -248,7 +253,7 @@ def ask(
 ) -> AskResponse:
     service = KnowledgeService(db)
     try:
-        answer, ranked_chunks = service.answer(
+        result = service.answer(
             tenant_id=tenant.id,
             user_id=tenant.user_id,
             question=payload.question,
@@ -256,12 +261,14 @@ def ask(
             scope=payload.scope,
             company_id=payload.company_id,
             deal_id=payload.deal_id,
+            document_id=payload.document_id,
             include_global=payload.include_global,
         )
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
     return AskResponse(
-        answer=answer,
+        query_id=result.query.id,
+        answer=result.answer,
         citations=[
             CitationResponse(
                 chunk_id=item.chunk.id,
@@ -271,15 +278,45 @@ def ask(
                 company_id=item.document.company_id,
                 deal_id=item.document.deal_id,
                 chunk_index=item.chunk.chunk_index,
+                page_number=item.chunk.page_number,
                 text=item.chunk.text,
                 score=item.score,
+                retrieval_method=item.retrieval_method,
             )
-            for item in ranked_chunks
+            for item in result.chunks
         ],
         scope=payload.scope,
         company_id=payload.company_id,
         deal_id=payload.deal_id,
+        document_id=payload.document_id,
         include_global=payload.include_global,
+        retrieval_mode=result.query.retrieval_mode,
+    )
+
+
+@router.post(
+    "/queries/{query_id}/feedback",
+    response_model=QueryFeedbackResponse,
+)
+def save_query_feedback(
+    query_id: UUID,
+    payload: QueryFeedbackRequest,
+    db: Session = Depends(get_db),
+    tenant: CurrentTenant = Depends(require_permission(Permission.AI_USE)),
+) -> QueryFeedbackResponse:
+    query_row = KnowledgeService(db).save_feedback(
+        tenant.id,
+        tenant.user_id,
+        query_id,
+        payload.rating,
+        payload.comment,
+    )
+    if query_row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge query not found")
+    return QueryFeedbackResponse(
+        query_id=query_row.id,
+        rating=query_row.feedback_rating,
+        comment=query_row.feedback_comment,
     )
 
 

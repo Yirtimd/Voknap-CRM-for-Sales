@@ -132,6 +132,54 @@ def test_deal_scope_reads_deal_and_base_company_only(scoped_knowledge):
     assert document_ids(results) == {data["company_a_document"].id, data["deal_a_document"].id}
 
 
+def test_document_filter_is_strict_and_context_aware(scoped_knowledge):
+    data = scoped_knowledge
+    results = data["service"].search(
+        data["tenant_id"],
+        "pricing policy",
+        scope="company",
+        company_id=data["company_a"].id,
+        document_id=data["company_a_document"].id,
+        limit=20,
+    )
+
+    assert document_ids(results) == {data["company_a_document"].id}
+    with pytest.raises(ValueError, match="selected knowledge context"):
+        data["service"].search(
+            data["tenant_id"],
+            "pricing policy",
+            scope="company",
+            company_id=data["company_a"].id,
+            document_id=data["company_b_document"].id,
+        )
+
+
+def test_answer_is_audited_and_accepts_owner_feedback(scoped_knowledge):
+    data = scoped_knowledge
+    user_id = uuid4()
+
+    result = data["service"].answer(
+        data["tenant_id"],
+        user_id,
+        "pricing policy",
+        scope="global",
+        document_id=data["global"].id,
+    )
+    feedback = data["service"].save_feedback(
+        data["tenant_id"],
+        user_id,
+        result.query.id,
+        "up",
+        "Источник подтверждает ответ",
+    )
+
+    assert result.query.document_id == data["global"].id
+    assert result.query.retrieval_mode == "hybrid"
+    assert result.query.sources_json != "[]"
+    assert feedback is not None
+    assert feedback.feedback_rating == "up"
+
+
 def test_request_rejects_implicit_or_conflicting_scope():
     company_id = uuid4()
 

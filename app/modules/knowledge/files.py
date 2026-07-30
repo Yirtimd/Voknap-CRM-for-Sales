@@ -42,6 +42,7 @@ class ParsedKnowledgeFile:
     text: str
     extraction_method: str
     source_pages: int | None = None
+    pages: tuple[str, ...] | None = None
 
 
 def parse_knowledge_file(filename: str, content_type: str | None, data: bytes) -> ParsedKnowledgeFile:
@@ -60,15 +61,17 @@ def parse_knowledge_file(filename: str, content_type: str | None, data: bytes) -
         raise KnowledgeFileError("File content type does not match its extension")
 
     if extension == ".pdf":
-        text, extraction_method, source_pages = _parse_pdf(data)
+        text, extraction_method, source_pages, pages = _parse_pdf(data)
     elif extension == ".docx":
         text = _parse_docx(data)
         extraction_method = "docx"
         source_pages = None
+        pages = None
     else:
         text = _parse_txt(data)
         extraction_method = "text"
         source_pages = None
+        pages = None
 
     clean_text = text.strip()
     if len(clean_text) < 20:
@@ -84,6 +87,7 @@ def parse_knowledge_file(filename: str, content_type: str | None, data: bytes) -
         text=clean_text,
         extraction_method=extraction_method,
         source_pages=source_pages,
+        pages=pages,
     )
 
 
@@ -98,7 +102,7 @@ def sanitize_filename(filename: str) -> str:
     return f"{stem}{suffix}"
 
 
-def _parse_pdf(data: bytes) -> tuple[str, str, int]:
+def _parse_pdf(data: bytes) -> tuple[str, str, int, tuple[str, ...]]:
     if not data.startswith(b"%PDF-"):
         raise KnowledgeFileError("File extension is PDF, but content is not a PDF")
     try:
@@ -129,13 +133,23 @@ def _parse_pdf(data: bytes) -> tuple[str, str, int]:
             # reject all useful text when OCR is unavailable on a local host.
             if len("\n".join(pages).strip()) < 20:
                 raise
-            return "\n\n".join(page for page in pages if page), "pypdf", len(pages)
+            return (
+                "\n\n".join(page for page in pages if page),
+                "pypdf",
+                len(pages),
+                tuple(pages),
+            )
         for page_index, text in ocr_text.items():
             pages[page_index] = text
         extraction_method = "pypdf+ocr"
     else:
         extraction_method = "pypdf"
-    return "\n\n".join(page for page in pages if page), extraction_method, len(pages)
+    return (
+        "\n\n".join(page for page in pages if page),
+        extraction_method,
+        len(pages),
+        tuple(pages),
+    )
 
 
 def _ocr_pdf_pages(data: bytes, page_indexes: list[int]) -> dict[int, str]:

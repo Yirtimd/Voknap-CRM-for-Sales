@@ -6,10 +6,11 @@ import UiEmptyState from "../components/ui/UiEmptyState.vue";
 import UiTabs from "../components/ui/UiTabs.vue";
 import { statusMeta } from "../design-system/statusDictionary";
 import { crmStore } from "../stores/crm";
+import type { AgentContext, KnowledgeDocument } from "../types";
 
 const activeTab = ref<"chat" | "documents" | "collections" | "agents" | "settings">("chat");
 const brainTabs = [
-  { value: "chat", label: "Вопросы" },
+  { value: "chat", label: "Чат с базой знаний" },
   { value: "documents", label: "Документы" },
   { value: "collections", label: "Коллекции" },
   { value: "agents", label: "AI-агенты" },
@@ -19,6 +20,8 @@ const uploadInput = ref<HTMLInputElement | null>(null);
 const uploadFile = ref<File | null>(null);
 const uploadTitle = ref("");
 const uploadInProgress = ref(false);
+const uploadReady = ref(false);
+const selectedDocumentId = ref("");
 
 const suggestedQuestions = [
   "Как мы квалифицируем лиды?",
@@ -34,27 +37,60 @@ const relatedKnowledge = [
   { title: "Продажи крупным клиентам", children: ["Проверка безопасности", "Участники", "Коммерческие условия"] }
 ];
 
-const aiActions = ["Создать задачу", "Создать чек-лист", "Открыть документ", "Сделать выжимку", "Объяснить проще", "Создать инструкцию", "Отправить агенту"];
-
-const confidence = computed(() => {
-  const citations = crmStore.knowledgeAnswer.value?.citations ?? [];
-  if (!citations.length) return 0;
-  return Math.min(99, Math.max(72, Math.round(citations[0].score * 100)));
-});
-
-const sourceSummary = computed(() => {
-  const count = new Set((crmStore.knowledgeAnswer.value?.citations ?? []).map((item) => item.document_id)).size;
-  if (!count) return "Задайте вопрос, чтобы увидеть источники ответа.";
-  return `Ответ сформирован по документам рабочего пространства: ${count}.`;
-});
+const knowledgeHistory = computed(() => crmStore.agentHistory.value.slice(-20));
 
 function askSuggested(question: string) {
   crmStore.knowledgeAskForm.value.question = question;
-  void crmStore.askKnowledge();
+  void askCurrentKnowledge();
 }
 
-function relevance(score: number) {
-  return `Релевантность ${Math.min(99, Math.max(61, Math.round(score * 100)))}%`;
+function retrievalLabel(method?: string) {
+  if (method === "hybrid") return "Гибридный поиск";
+  if (method === "lexical") return "По тексту";
+  return "По смыслу";
+}
+
+async function askCurrentKnowledge() {
+  const document = crmStore.knowledgeDocuments.value.find((item) => item.id === selectedDocumentId.value);
+  return crmStore.askKnowledge(document
+    ? {
+        scope: document.visibility as "global" | "company" | "deal",
+        company_id: document.company_id ?? undefined,
+        deal_id: document.deal_id ?? undefined,
+        document_id: document.id
+      }
+    : { scope: "global" });
+}
+
+function askAboutDocument(document: KnowledgeDocument) {
+  selectedDocumentId.value = document.id;
+  crmStore.openAgent(
+    {
+      type: "document",
+      document_id: document.id,
+      company_id: document.company_id ?? null,
+      deal_id: document.deal_id ?? null
+    },
+    `Что важно знать из документа «${document.title}»?`
+  );
+}
+
+function openCitation(documentId: string) {
+  const document = crmStore.knowledgeDocuments.value.find((item) => item.id === documentId);
+  if (document) void crmStore.downloadKnowledgeDocument(document);
+}
+
+function contextLabel(context: AgentContext) {
+  if (context.type === "document") {
+    return crmStore.knowledgeDocuments.value.find((item) => item.id === context.document_id)?.title ?? "Документ";
+  }
+  if (context.type === "deal") {
+    return crmStore.deals.value.find((item) => item.id === context.deal_id)?.title ?? "Сделка";
+  }
+  if (context.type === "company") {
+    return crmStore.companies.value.find((item) => item.id === context.company_id)?.name ?? "Компания";
+  }
+  return context.type === "knowledge" ? "База знаний" : "Вся CRM";
 }
 
 function selectUpload(event: Event) {
@@ -73,6 +109,7 @@ async function uploadKnowledgeFile() {
       uploadFile.value = null;
       uploadTitle.value = "";
       if (uploadInput.value) uploadInput.value.value = "";
+      uploadReady.value = true;
     }
   } finally {
     uploadInProgress.value = false;
@@ -80,7 +117,7 @@ async function uploadKnowledgeFile() {
 }
 
 onMounted(() => {
-  void crmStore.refreshKnowledge();
+  void Promise.all([crmStore.refreshKnowledge(), crmStore.refreshAgent()]);
 });
 </script>
 
@@ -95,7 +132,15 @@ onMounted(() => {
           <h2>Добрый день, Дмитрий.</h2>
           <p>Что вы хотите узнать?</p>
 
-          <form class="brain-question" @submit.prevent="crmStore.askKnowledge()">
+          <label class="brain-context">
+            Искать в
+            <select v-model="selectedDocumentId">
+              <option value="">Вся база знаний</option>
+              <option v-for="document in crmStore.knowledgeDocuments.value" :key="document.id" :value="document.id">{{ document.title }}</option>
+            </select>
+          </label>
+
+          <form class="brain-question" @submit.prevent="askCurrentKnowledge">
             <textarea
               v-model="crmStore.knowledgeAskForm.value.question"
               rows="3"
@@ -111,44 +156,37 @@ onMounted(() => {
           </div>
         </section>
 
-        <section v-if="crmStore.knowledgeAnswer.value" class="panel brain-answer">
+        <section v-if="knowledgeHistory.length" class="panel brain-answer">
           <div class="brain-answer-head">
             <div>
-              <p class="eyebrow">Ответ</p>
-              <h2>Ответ по базе знаний</h2>
+              <p class="eyebrow">Единая история</p>
+              <h2>Диалог с AI-помощником</h2>
             </div>
-            <div class="confidence-meter">
-              <span>Уверенность</span>
-              <strong>{{ confidence }}%</strong>
+            <UiBadge tone="info">{{ knowledgeHistory.length }} сообщений</UiBadge>
+          </div>
+
+          <article v-for="message in knowledgeHistory" :key="message.id" class="brain-history-message" :class="message.role">
+            <header>
+              <strong>{{ message.role === "user" ? "Вы" : "AI-помощник" }}</strong>
+              <small>{{ contextLabel(message.context) }}</small>
+            </header>
+            <p>{{ message.content }}</p>
+            <div v-if="message.sources.length" class="source-list">
+              <article v-for="citation in message.sources" :key="citation.chunk_id" class="brain-source">
+                <div>
+                  <strong>{{ citation.document_title }}</strong>
+                  <small>{{ retrievalLabel(citation.retrieval_method) }}<template v-if="citation.page_number"> · стр. {{ citation.page_number }}</template></small>
+                </div>
+                <p>{{ citation.text }}</p>
+                <button type="button" class="secondary" @click="openCitation(citation.document_id)">Открыть</button>
+              </article>
             </div>
-          </div>
-
-          <p class="answer-text">{{ crmStore.knowledgeAnswer.value.answer }}</p>
-
-          <div class="reasoning-block">
-            <span>Основание ответа</span>
-            <p>{{ sourceSummary }}</p>
-          </div>
-
-          <div class="ai-actions">
-            <button v-for="action in aiActions" :key="action" type="button" class="secondary">{{ action }}</button>
-          </div>
-
-          <div class="source-list">
-            <h3>Источники</h3>
-            <article
-              v-for="citation in crmStore.knowledgeAnswer.value.citations"
-              :key="citation.chunk_id"
-              class="brain-source"
-            >
-              <div>
-                <strong>{{ citation.document_title }}</strong>
-                <small>{{ relevance(citation.score) }}</small>
-              </div>
-              <p>{{ citation.text }}</p>
-              <button type="button" class="secondary">Открыть</button>
-            </article>
-          </div>
+            <div v-if="message.role === 'assistant' && message.query_id" class="agent-feedback">
+              <span>Ответ полезен?</span>
+              <button type="button" class="secondary" @click="crmStore.sendAgentFeedback(message.query_id, 'up')">Да</button>
+              <button type="button" class="secondary" @click="crmStore.sendAgentFeedback(message.query_id, 'down')">Нет</button>
+            </div>
+          </article>
         </section>
       </div>
 
@@ -195,6 +233,10 @@ onMounted(() => {
             {{ uploadInProgress ? "Обработка и индексация…" : "Загрузить и проиндексировать" }}
           </button>
         </form>
+        <div v-if="uploadReady" class="knowledge-upload-ready">
+          <span>Документ проиндексирован. Можно задавать вопросы.</span>
+          <button type="button" @click="activeTab = 'chat'">Перейти к вопросам</button>
+        </div>
 
         <form class="document-upload-form" @submit.prevent="crmStore.createKnowledgeDocument">
           <h3 class="wide-field">Или добавьте текст</h3>
@@ -213,6 +255,7 @@ onMounted(() => {
           </div>
           <div>
             <button v-if="document.download_url" type="button" class="secondary" @click="crmStore.downloadKnowledgeDocument(document)">Скачать</button>
+            <button type="button" class="secondary" @click="askAboutDocument(document)">Задать вопрос</button>
             <UiBadge :tone="statusMeta(document.status, 'document').tone">{{ statusMeta(document.status, "document").label }}</UiBadge>
           </div>
         </article>
@@ -229,3 +272,15 @@ onMounted(() => {
     </section>
   </section>
 </template>
+
+<style scoped>
+.brain-context { display:grid; gap:6px; margin:18px 0 10px; color:var(--text-muted); font-size:12px; }
+.brain-context select { min-height:40px; border:1px solid var(--line); border-radius:10px; padding:0 10px; background:var(--surface-solid); color:var(--text); }
+.knowledge-upload-ready { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:12px 0; border:1px solid var(--success); border-radius:10px; padding:10px 12px; background:color-mix(in srgb, var(--success) 8%, transparent); }
+.agent-feedback { display:flex; align-items:center; gap:8px; margin-top:14px; color:var(--text-muted); font-size:12px; }
+.brain-history-message { display:grid; gap:8px; margin-top:12px; border:1px solid var(--line); border-radius:12px; padding:12px; }
+.brain-history-message.user { margin-left:12%; background:var(--surface-muted); }
+.brain-history-message header { display:flex; justify-content:space-between; gap:12px; }
+.brain-history-message header small { color:var(--text-muted); }
+.brain-history-message > p { margin:0; white-space:pre-wrap; }
+</style>
