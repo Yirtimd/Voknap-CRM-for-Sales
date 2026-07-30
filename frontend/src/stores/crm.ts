@@ -145,7 +145,7 @@ const knowledgeDocumentForm = ref({
 });
 const knowledgeSearchForm = ref({ query: "Что делать после новой заявки?", limit: 6, scope: "global", include_global: false });
 const knowledgeAskForm = ref({ question: "Что делать после новой заявки?", limit: 6 });
-const agentForm = ref({ message: "Дай сводку по CRM" });
+const agentForm = ref({ message: "" });
 const connectorAccountForm = ref({
   connector_code: "email",
   title: "Рабочая почта",

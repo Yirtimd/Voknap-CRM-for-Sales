@@ -1,5 +1,5 @@
 import { flushPromises, mount } from "@vue/test-utils";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { crmStore } from "../../stores/crm";
 import GlobalAgentSidebar from "./GlobalAgentSidebar.vue";
@@ -47,7 +47,12 @@ beforeEach(() => {
       download_url: "/knowledge/documents/document-1/download"
     }]
   }];
+  crmStore.agentActions.value = [];
+  crmStore.agentForm.value.message = "";
+  crmStore.isLoading.value = false;
 });
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("GlobalAgentSidebar", () => {
   it("shows active document context, citations and feedback", async () => {
@@ -63,5 +68,44 @@ describe("GlobalAgentSidebar", () => {
     const feedbackButtons = wrapper.findAll(".agent-feedback button");
     await feedbackButtons[0].trigger("click");
     expect(feedback).toHaveBeenCalledWith("query-1", "up");
+  });
+
+  it("gives chat most space and hides starter prompts after messages exist", async () => {
+    vi.spyOn(crmStore, "refreshAgent").mockResolvedValue();
+    const wrapper = mount(GlobalAgentSidebar, { props: { open: true } });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("AI-ассистент");
+    expect(wrapper.find(".agent-messages").exists()).toBe(true);
+    expect(wrapper.find(".agent-starters").exists()).toBe(false);
+    expect(wrapper.find(".agent-summary").exists()).toBe(false);
+
+    await wrapper.get('[aria-label="Новый чат"]').trigger("click");
+    expect(wrapper.find(".agent-starters").exists()).toBe(true);
+    expect(wrapper.text()).toContain("Сделай выжимку документа");
+  });
+
+  it("opens actions in a separate view and supports wide mode", async () => {
+    crmStore.agentActions.value = [{
+      id: "action-1",
+      action_type: "create_task",
+      status: "pending",
+      payload: { title: "Позвонить клиенту", due_at: "2026-08-01" },
+      result: null,
+      created_at: "2026-07-30T00:00:00Z",
+      confirmed_at: null
+    }];
+    vi.spyOn(crmStore, "refreshAgent").mockResolvedValue();
+    const wrapper = mount(GlobalAgentSidebar, { props: { open: true } });
+    await flushPromises();
+
+    const actionsTab = wrapper.findAll('[role="tab"]').find((item) => item.text().includes("Действия"));
+    await actionsTab!.trigger("click");
+    expect(wrapper.text()).toContain("Позвонить клиенту");
+    expect(wrapper.text()).toContain("Подтвердить действие");
+    expect(wrapper.find(".agent-composer").exists()).toBe(false);
+
+    await wrapper.get('[aria-label="Развернуть AI-ассистента"]').trigger("click");
+    expect(wrapper.get(".agent-sidebar").classes()).toContain("is-wide");
   });
 });

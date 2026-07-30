@@ -23,7 +23,7 @@ export default defineConfig({
   },
   use: {
     ...devices["Desktop Chrome"],
-    baseURL: "http://127.0.0.1:4173",
+    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:4173",
     colorScheme: "light",
     locale: "ru-RU",
     timezoneId: "Europe/Moscow",

@@ -951,12 +951,14 @@ textarea:focus-visible {
 }
 
 .sidebar {
-  position: sticky;
-  top: 0;
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 20;
   display: flex;
   flex-direction: column;
   gap: 22px;
-  height: 100vh;
+  width: 252px;
+  height: 100dvh;
   border-right: 1px solid #d2d2d7;
   padding: 10px 18px 22px;
   background: #efeff2;
@@ -1147,6 +1149,7 @@ textarea:focus-visible {
 .sidebar-compact .sidebar {
   align-items: center;
   gap: 16px;
+  width: 76px;
   padding: 10px 12px 18px;
 }
 
@@ -1296,6 +1299,7 @@ textarea:focus-visible {
 }
 
 .content {
+  grid-column: 2;
   min-width: 0;
   width: 100%;
   overflow-x: clip;
@@ -1306,8 +1310,18 @@ textarea:focus-visible {
 }
 
 .app-shell.agent-open .content {
-  width: min(1040px, calc(100% - 390px));
-  padding-right: 20px;
+  width: 100%;
+}
+
+@media (min-width: 1600px) {
+  .app-shell.agent-open .content {
+    width: calc(100% - 430px);
+    padding-right: 20px;
+  }
+
+  .app-shell.agent-open:has(.agent-sidebar.is-wide) .content {
+    width: 100%;
+  }
 }
 
 .app-shell.sidebar-compact .content,
@@ -7334,21 +7348,21 @@ meter {
   display: grid;
   grid-template-rows: auto auto auto minmax(180px, 1fr) auto auto auto;
   gap: 10px;
-  width: min(390px, 100vw);
+  width: min(430px, 100vw);
   height: 100vh;
   overflow: hidden;
   border-left: 1px solid var(--line);
   border-radius: 0;
-  padding: 18px;
-  background: #ffffff;
-  box-shadow: -16px 0 32px rgba(0, 0, 0, 0.08);
+  padding: 0;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-drawer);
 }
 
 .agent-backdrop {
   position: fixed;
   inset: 0;
   z-index: 29;
-  background: transparent;
+  background: var(--color-overlay);
 }
 
 .agent-edge {
@@ -7789,6 +7803,7 @@ body:has(.agent-edge:hover) .agent-edge {
   .sidebar-footer { display:none; }
 
   .content {
+    grid-column: 1;
     max-width:100vw;
     overflow-x:hidden;
     padding: calc(18px + env(safe-area-inset-top)) 14px calc(92px + env(safe-area-inset-bottom));
