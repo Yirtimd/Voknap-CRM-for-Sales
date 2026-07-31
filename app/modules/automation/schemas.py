@@ -32,6 +32,7 @@ ActionType = Literal[
     "send_template",
     "request_approval",
     "update_next_action",
+    "notify_user",
 ]
 
 

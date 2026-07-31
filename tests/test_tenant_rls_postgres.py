@@ -197,22 +197,43 @@ def test_automation_tables_are_forced_rls_and_default_deny(postgres_connection):
             "user_b": user_b,
         },
     )
+    connection.execute(
+        text(
+            "INSERT INTO notifications "
+            "(id, tenant_id, recipient_id, event_key, category, priority, title, "
+            "metadata_json, created_at) VALUES "
+            "(:id_a, :tenant_a, :user_a, 'event-a', 'automation', 'normal', "
+            "'A notification', '{}', now()), "
+            "(:id_b, :tenant_b, :user_b, 'event-b', 'automation', 'normal', "
+            "'B notification', '{}', now())"
+        ),
+        {
+            "id_a": uuid4(),
+            "id_b": uuid4(),
+            "tenant_a": tenant_a,
+            "tenant_b": tenant_b,
+            "user_a": user_a,
+            "user_b": user_b,
+        },
+    )
     forced = connection.execute(
         text(
             "SELECT count(*) FROM pg_class WHERE relname IN "
             "('message_templates', 'automation_workflows', 'automation_runs', "
-            "'approval_requests', 'automation_outbox') "
+            "'approval_requests', 'automation_outbox', 'notifications') "
             "AND relrowsecurity AND relforcerowsecurity"
         )
     ).scalar_one()
-    assert forced == 5
+    assert forced == 6
     connection.exec_driver_sql(f'SET LOCAL ROLE "{settings.database_runtime_role}"')
     assert connection.execute(text("SELECT count(*) FROM message_templates")).scalar_one() == 0
+    assert connection.execute(text("SELECT count(*) FROM notifications")).scalar_one() == 0
     connection.execute(
         text("SELECT set_config('app.tenant_id', :tenant_id, true)"),
         {"tenant_id": str(tenant_a)},
     )
     assert connection.execute(text("SELECT name FROM message_templates")).scalar_one() == "A"
+    assert connection.execute(text("SELECT title FROM notifications")).scalar_one() == "A notification"
 
 
 def test_score_snapshots_are_forced_rls_and_default_deny(postgres_connection):

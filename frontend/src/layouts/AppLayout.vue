@@ -5,6 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 import voknapLogo from "../assets/voknap-logo.png";
 import voknapLogoDark from "../assets/voknap-logo-dark.png";
 import GlobalAgentSidebar from "../components/crm/GlobalAgentSidebar.vue";
+import NotificationBell from "../components/crm/NotificationBell.vue";
 import UiAlert from "../components/ui/UiAlert.vue";
 import UiDensityToggle from "../components/ui/UiDensityToggle.vue";
 import UiIcon from "../components/ui/UiIcon.vue";
@@ -13,6 +14,7 @@ import type { IconName } from "../components/ui/icons";
 import { useDensity } from "../design-system/density";
 import { useTheme } from "../design-system/theme";
 import { crmStore } from "../stores/crm";
+import { notificationStore } from "../stores/notifications";
 
 const router = useRouter();
 const route = useRoute();
@@ -76,20 +78,6 @@ const searchResults = computed(() => {
     .filter((item) => [item.name, item.email, item.phone, item.company_name].some((value) => String(value ?? "").toLowerCase().includes(needle)))
     .map((item) => ({ id: `contact-${item.id}`, type: "Контакт", title: item.name, meta: item.company_name ?? item.email ?? "Контакт", to: `/leads?contact=${item.id}` }));
   return [...companies, ...contacts, ...leads, ...deals, ...tasks].slice(0, 10);
-});
-
-const notifications = computed(() => {
-  const now = Date.now();
-  const overdue = crmStore.tasks.value
-    .filter((task) => !task.done_at && task.due_at && new Date(task.due_at).getTime() < now)
-    .map((task) => ({ id: `task-${task.id}`, tone: "danger", title: "Просрочена задача", text: task.title, to: "/tasks" }));
-  const risks = crmStore.deals.value
-    .filter((deal) => deal.status === "open" && deal.risk_level === "high")
-    .map((deal) => ({ id: `deal-${deal.id}`, tone: "warning", title: "Сделка высокого риска", text: deal.title, to: `/deals?deal=${deal.id}` }));
-  const incoming = crmStore.communicationEvents.value
-    .filter((event) => event.direction === "inbound" && ["new", "received", "unread"].includes(event.status))
-    .map((event) => ({ id: `event-${event.id}`, tone: "info", title: "Новое входящее", text: event.subject, to: "/inbox" }));
-  return [...overdue, ...risks, ...incoming].slice(0, 10);
 });
 
 const initials = computed(() => {
@@ -273,16 +261,7 @@ watch(
               <button type="button" @click="navigate('/inbox')">Входящее событие</button>
             </section>
           </div>
-          <div class="top-action-wrap">
-            <button type="button" class="secondary home-bell" aria-label="Уведомления" @click="togglePanel('notifications')"><UiIcon name="bell" :size="20" /><b v-if="notifications.length">{{ notifications.length }}</b></button>
-            <section v-if="activePanel === 'notifications'" class="top-popover notification-popover">
-              <header><strong>Уведомления</strong><small>{{ notifications.length }}</small></header>
-              <button v-for="item in notifications" :key="item.id" type="button" class="popover-row" @click="navigate(item.to)">
-                <i :class="item.tone"></i><div><strong>{{ item.title }}</strong><small>{{ item.text }}</small></div>
-              </button>
-              <p v-if="!notifications.length" class="popover-empty">Новых уведомлений нет</p>
-            </section>
-          </div>
+          <NotificationBell />
           <div class="top-action-wrap">
             <button type="button" class="secondary home-avatar" aria-label="Профиль" @click="togglePanel('profile')">{{ initials }}</button>
             <section v-if="activePanel === 'profile'" class="top-popover profile-popover">
@@ -309,12 +288,13 @@ watch(
           <h1>{{ pageTitle }}</h1>
         </div>
         <div v-if="isTasks" class="tasks-top-actions">
-          <button type="button" class="secondary tasks-ai-inbox" @click="navigate('/inbox')"><UiIcon name="sparkles" :size="16" /> AI-входящие <b>{{ notifications.length }}</b></button>
+          <button type="button" class="secondary tasks-ai-inbox" @click="navigate('/inbox?tab=notifications')"><UiIcon name="sparkles" :size="16" /> AI-входящие <b>{{ notificationStore.summary.value.unread_count }}</b></button>
+          <NotificationBell />
           <button type="button" class="tasks-new-button" @click="openTaskCreate"><UiIcon name="plus" :size="16" /> Новая задача</button>
           <button type="button" class="secondary tasks-refresh" @click="crmStore.refreshAll"><UiIcon name="refresh" :size="16" /> Обновить</button>
           <button type="button" class="secondary tasks-more" aria-label="Дополнительные действия"><UiIcon name="more" :size="18" /></button>
         </div>
-        <button v-else type="button" class="secondary" @click="crmStore.refreshAll">Обновить</button>
+        <div v-else class="page-top-actions"><NotificationBell /><button type="button" class="secondary" @click="crmStore.refreshAll">Обновить</button></div>
       </header>
 
       <UiAlert v-if="crmStore.error.value" tone="danger" title="Не удалось выполнить действие">{{ crmStore.error.value }}</UiAlert>
@@ -362,6 +342,7 @@ watch(
 
 <style scoped>
 .home-search, .top-action-wrap { position: relative; }
+.page-top-actions { display:flex; align-items:center; gap:8px; }
 .sidebar-appearance { position:relative; }
 .sidebar-appearance__trigger { width:100%; justify-content:flex-start; gap:8px; }
 .sidebar-appearance__trigger span { flex:1; text-align:left; }

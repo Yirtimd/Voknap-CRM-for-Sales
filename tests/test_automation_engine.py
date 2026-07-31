@@ -20,6 +20,7 @@ from app.modules.automation.models import (
     AutomationRun,
     MessageTemplate,
 )
+from app.modules.notifications.models import Notification
 from app.modules.sales.models import Company, Contact, Deal, NextAction, Pipeline, PipelineStage, Task
 
 
@@ -387,6 +388,46 @@ def test_new_communication_updates_next_action(automation_api):
     next_action = automation_api["db"].query(NextAction).one()
     assert next_action.title == "Ответить: Новый вопрос"
     assert next_action.assigned_to_id == automation_api["users"]["rep"].id
+
+
+def test_workflow_creates_personal_notification(automation_api):
+    _workflow(
+        automation_api,
+        {
+            "name": "Notify deal owner",
+            "trigger_type": "deal.updated",
+            "conditions": [],
+            "actions": [
+                {
+                    "type": "notify_user",
+                    "config": {
+                        "assignee": "owner",
+                        "title": "Проверьте {{title}}",
+                        "body": "Сумма сделки изменилась",
+                        "priority": "high",
+                    },
+                }
+            ],
+        },
+    )
+    response = automation_api["client"].patch(
+        f"/sales/deals/{automation_api['deal'].id}",
+        headers=_headers(automation_api),
+        json={"version": 1, "amount": 120000},
+    )
+    assert response.status_code == 200, response.text
+
+    notification = automation_api["db"].query(Notification).one()
+    assert notification.recipient_id == automation_api["users"]["rep"].id
+    assert notification.title == "Проверьте Automation Deal"
+    assert notification.priority == "high"
+    assert notification.link == f"/deals?deal={automation_api['deal'].id}"
+
+    inbox = automation_api["client"].get(
+        "/notifications", headers=_headers(automation_api, "rep")
+    )
+    assert inbox.status_code == 200
+    assert inbox.json()[0]["category"] == "automation"
 
 
 def test_sales_rep_cannot_manage_workflows_and_cross_tenant_template_is_hidden(automation_api):

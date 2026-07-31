@@ -353,7 +353,30 @@ export type AutomationActionType =
   | "create_task"
   | "send_template"
   | "request_approval"
-  | "update_next_action";
+  | "update_next_action"
+  | "notify_user";
+
+export type NotificationCategory = "automation" | "approval" | "task" | "communication" | "system";
+export type NotificationPriority = "low" | "normal" | "high" | "critical";
+
+export type NotificationItem = {
+  id: string;
+  category: NotificationCategory;
+  priority: NotificationPriority;
+  title: string;
+  body: string | null;
+  link: string | null;
+  source_type: string | null;
+  source_id: string | null;
+  metadata: Record<string, unknown>;
+  read_at: string | null;
+  created_at: string;
+};
+
+export type NotificationSummary = {
+  unread_count: number;
+  critical_count: number;
+};
 
 export type AutomationCondition = {
   field: string;

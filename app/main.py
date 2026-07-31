@@ -7,6 +7,7 @@ from app.modules.automation import models as automation_models  # noqa: F401
 from app.modules.communication import models as communication_models  # noqa: F401
 from app.modules.connectors import models as connectors_models  # noqa: F401
 from app.modules.knowledge import models as knowledge_models  # noqa: F401
+from app.modules.notifications import models as notification_models  # noqa: F401
 from app.modules.production import models as production_models  # noqa: F401
 from app.modules.sales import models as sales_models  # noqa: F401
 from app.modules.sequences import models as sequence_models  # noqa: F401
@@ -23,6 +24,7 @@ from app.modules.connectors.router import router as connectors_router
 from app.modules.connectors.public_router import router as public_api_router
 from app.modules.health.router import router as health_router
 from app.modules.knowledge.router import router as knowledge_router
+from app.modules.notifications.router import router as notifications_router
 from app.modules.me.router import router as me_router
 from app.modules.production.router import router as production_router
 from app.modules.sales.router import router as sales_router
@@ -64,6 +66,7 @@ app.include_router(sales_lifecycle_router, prefix="/sales", tags=["sales-lifecyc
 app.include_router(sales_scoring_router, prefix="/sales", tags=["sales-scoring"])
 app.include_router(sequences_router, prefix="/sequences", tags=["sequences"])
 app.include_router(knowledge_router, prefix="/knowledge", tags=["knowledge"])
+app.include_router(notifications_router, prefix="/notifications", tags=["notifications"])
 app.include_router(ai_agent_router, prefix="/ai-agent", tags=["ai-agent"])
 app.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
 app.include_router(automation_router, prefix="/automations", tags=["automations"])

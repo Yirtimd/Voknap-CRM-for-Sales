@@ -22,6 +22,7 @@ from app.modules.automation.models import (
 )
 from app.modules.automation.schemas import AutomationAction, AutomationCondition
 from app.modules.communication.models import CommunicationEvent
+from app.modules.notifications.service import NotificationService
 from app.modules.sales.models import Company, Contact, Deal, Lead, NextAction, PipelineStage, Task
 
 
@@ -104,6 +105,7 @@ ACTION_TYPES = {
     "send_template",
     "request_approval",
     "update_next_action",
+    "notify_user",
 }
 TRIGGER_ACTIONS = {
     "lead.created": ACTION_TYPES,
@@ -201,6 +203,18 @@ class AutomationEngine:
             except Exception as error:  # workflow failure must not abort source CRM transaction
                 run.status = "failed"
                 run.error = str(error)[:4000]
+                NotificationService(self.db).create(
+                    tenant_id=tenant_id,
+                    recipient_id=workflow.created_by_id,
+                    event_key=f"automation:failed:{run.id}",
+                    category="automation",
+                    priority="critical",
+                    title=f"Ошибка сценария: {workflow.name}",
+                    body=run.error,
+                    link="/automation",
+                    source_type="automation_run",
+                    source_id=run.id,
+                )
             run.completed_at = None if run.status == "waiting_approval" else _now()
             runs.append(run)
         return runs
@@ -402,6 +416,10 @@ class AutomationEngine:
                     )
                 )
                 break
+            elif action.type == "notify_user":
+                results.append(
+                    self._notify_user(run, context, action.config, actor_id, index)
+                )
             else:
                 results.append(self._update_next_action(run, context, action.config, actor_id))
         return results
@@ -443,6 +461,19 @@ class AutomationEngine:
         )
         self.db.add(task)
         self.db.flush()
+        NotificationService(self.db).create(
+            tenant_id=run.tenant_id,
+            recipient_id=assigned_to_id,
+            event_key=f"automation:task:{run.id}:{task.id}",
+            category="task",
+            priority="high" if task.priority == "high" else "normal",
+            title="Новая задача от автоматизации",
+            body=task.title,
+            link=f"/tasks?record={task.id}",
+            source_type="task",
+            source_id=task.id,
+            metadata={"workflow_id": str(run.workflow_id), "run_id": str(run.id)},
+        )
         ActivityService(self.db).create(
             tenant_id=run.tenant_id,
             created_by=actor_id,
@@ -524,7 +555,47 @@ class AutomationEngine:
             approval.reason,
             {"assigned_to_id": str(assigned_to_id), "priority": approval.priority},
         )
+        NotificationService(self.db).create(
+            tenant_id=run.tenant_id,
+            recipient_id=assigned_to_id,
+            event_key=f"approval:created:{approval.id}",
+            category="approval",
+            priority=approval.priority,
+            title=approval.title,
+            body=approval.reason,
+            link="/automation?tab=approvals",
+            source_type="approval",
+            source_id=approval.id,
+            metadata={"workflow_id": str(workflow.id), "run_id": str(run.id)},
+        )
         return {"type": "request_approval", "approval_id": str(approval.id)}
+
+    def _notify_user(
+        self,
+        run: AutomationRun,
+        context: dict[str, Any],
+        config: dict[str, Any],
+        actor_id: UUID | None,
+        action_index: int,
+    ) -> dict:
+        entity = self._get_entity(run)
+        recipient_id = self._resolve_user(run.tenant_id, entity, config, actor_id)
+        notification = NotificationService(self.db).create(
+            tenant_id=run.tenant_id,
+            recipient_id=recipient_id,
+            event_key=f"automation:notify:{run.id}:{action_index}",
+            category="automation",
+            priority=config.get("priority", "normal"),
+            title=_render(config["title"], context) or "Automation notification",
+            body=_render(config.get("body"), context),
+            link=_entity_link(run),
+            source_type="automation_run",
+            source_id=run.id,
+            metadata={"workflow_id": str(run.workflow_id), "entity_type": run.entity_type},
+        )
+        if notification is None:
+            raise ValueError("Notification recipient is not an active tenant member")
+        return {"type": "notify_user", "notification_id": str(notification.id)}
 
     def _has_pending_approval(self, run_id: UUID) -> bool:
         return (
@@ -553,6 +624,18 @@ class AutomationEngine:
             comment,
             from_status=previous,
             to_status=status_value,
+        )
+        NotificationService(self.db).create(
+            tenant_id=approval.tenant_id,
+            recipient_id=approval.requested_by_id,
+            event_key=f"approval:decision:{approval.id}:{status_value}",
+            category="approval",
+            priority=approval.priority,
+            title=f"Согласование: {status_value}",
+            body=approval.title,
+            link="/automation?tab=approvals",
+            source_type="approval",
+            source_id=approval.id,
         )
 
     def _add_approval_history(
@@ -716,9 +799,18 @@ class AutomationEngine:
             if action.type not in ACTION_TYPES:
                 raise HTTPException(status_code=422, detail="Unsupported action")
             config = action.config
-            if action.type in {"create_task", "update_next_action", "request_approval"}:
+            if action.type in {
+                "create_task",
+                "update_next_action",
+                "request_approval",
+                "notify_user",
+            }:
                 if not config.get("title"):
                     raise HTTPException(status_code=422, detail=f"{action.type} requires title")
+            if action.type == "notify_user":
+                priority = config.get("priority", "normal")
+                if priority not in {"low", "normal", "high", "critical"}:
+                    raise HTTPException(status_code=422, detail="Invalid notification priority")
             if action.type == "send_template":
                 try:
                     template_id = UUID(str(config["template_id"]))
@@ -766,6 +858,16 @@ def _conditions_match(
         return True
     results = [_condition_matches(condition, context.get(condition.field)) for condition in conditions]
     return any(results) if logic == "any" else all(results)
+
+
+def _entity_link(run: AutomationRun) -> str:
+    if run.entity_type == "deal":
+        return f"/deals?deal={run.entity_id}"
+    if run.entity_type == "lead":
+        return f"/leads?record={run.entity_id}"
+    if run.entity_type == "communication":
+        return f"/inbox?event={run.entity_id}"
+    return "/home"
 
 
 def _condition_matches(condition: AutomationCondition, actual: Any) -> bool:

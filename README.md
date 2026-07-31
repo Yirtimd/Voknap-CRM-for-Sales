@@ -19,7 +19,8 @@ business object:
 
 ```text
 Company → Contacts → Leads → Deals → Communications
-        → Tasks → Documents → Knowledge → AI context
+        → Sequences → Tasks → Timeline
+        → Documents → Knowledge → AI context
 ```
 
 The architecture is intended to be adapted to each customer's processes,
@@ -32,6 +33,8 @@ permissions, integrations, terminology, and industry requirements.
 - complete CRM record lifecycle with qualification, conversion, merge, archive,
   soft delete, restore, bulk actions, reassignment, and optimistic locking;
 - unified activity timeline and communication inbox;
+- contact sequences/cadences with scheduled task, call, manual-email, and
+  connector-backed automatic-email steps;
 - tenant-safe PostgreSQL data model with database-enforced isolation;
 - document upload, OCR, S3-compatible storage, and scoped RAG;
 - AI copilot with grounded context and confirmation before CRM mutations;
@@ -69,7 +72,7 @@ flowchart LR
 ```
 
 The backend is a modular monolith. Business modules include accounts, sales,
-activities, communication, knowledge, AI agent, analytics, connectors,
+activities, communication, sequences, knowledge, AI agent, analytics, connectors,
 templates, and production administration.
 
 ## Tenant isolation
@@ -258,6 +261,8 @@ The complete development template is available in `.env.example`.
 - workflow automation with idempotent runs, approval decisions, scheduled
   inactive-deal processing, and auditable failures;
 - searchable and paginated CRM CRUD with field-change history;
+- tenant-safe sales sequences with contact enrollment, pause/resume/stop,
+  reply-based exit, execution history, and CRM timeline integration;
 - negative tenant-isolation and authorization tests;
 - local and GitHub Actions quality gates.
 
@@ -270,7 +275,6 @@ The complete development template is available in `.env.example`.
 ## Planned product capabilities
 
 - custom fields and customer-specific process configuration;
-- sales sequences;
 - products, price books, quotes, and contract workflows;
 - configurable reports, dashboards, quotas, and advanced forecasting;
 - production deployment, backup, recovery, and compliance profiles.

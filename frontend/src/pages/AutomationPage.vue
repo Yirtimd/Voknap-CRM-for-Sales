@@ -26,6 +26,7 @@ type ActionConfigDraft = {
   template_id: string;
   recipient: string;
   reason: string;
+  body: string;
 };
 type ActionDraft = { type: AutomationActionType; config: ActionConfigDraft };
 
@@ -62,6 +63,7 @@ const actionTypes: Array<{ value: AutomationActionType; label: string; descripti
   { value: "create_task", label: "Создать задачу", description: "Поставить задачу со сроком и приоритетом." },
   { value: "send_template", label: "Отправить шаблон", description: "Подготовить сообщение по активному шаблону." },
   { value: "request_approval", label: "Запросить согласование", description: "Остановить сценарий до решения." },
+  { value: "notify_user", label: "Создать уведомление", description: "Показать персональное событие в колокольчике и Inbox." },
   { value: "update_next_action", label: "Обновить следующий шаг", description: "Создать новый next action." }
 ];
 
@@ -119,14 +121,15 @@ function newAction(type: AutomationActionType): ActionDraft {
     config: {
       assignee: type === "request_approval" ? "owner_manager" : "owner",
       user_id: "",
-      title: type === "request_approval" ? "Согласовать {{title}}" : type === "create_task" ? "Связаться по {{title}}" : "Позвонить клиенту",
+      title: type === "request_approval" ? "Согласовать {{title}}" : type === "create_task" ? "Связаться по {{title}}" : type === "notify_user" ? "Событие по {{title}}" : "Позвонить клиенту",
       description: "",
       due_in_days: 1,
       due_in_hours: 24,
       priority: "normal",
       template_id: "",
       recipient: "",
-      reason: ""
+      reason: "",
+      body: ""
     }
   };
 }
@@ -173,7 +176,7 @@ function workflowPayload() {
         config.assignee = item.config.assignee;
         if (item.config.user_id.trim()) config.user_id = item.config.user_id.trim();
       }
-      if (["create_task", "request_approval", "update_next_action"].includes(item.type)) config.title = item.config.title.trim();
+      if (["create_task", "request_approval", "update_next_action", "notify_user"].includes(item.type)) config.title = item.config.title.trim();
       if (["create_task", "update_next_action"].includes(item.type)) {
         if (item.config.description.trim()) config.description = item.config.description.trim();
         config.due_in_days = Number(item.config.due_in_days);
@@ -182,6 +185,10 @@ function workflowPayload() {
       if (item.type === "request_approval") {
         if (item.config.reason.trim()) config.reason = item.config.reason.trim();
         config.due_in_hours = Number(item.config.due_in_hours);
+        config.priority = item.config.priority;
+      }
+      if (item.type === "notify_user") {
+        if (item.config.body.trim()) config.body = item.config.body.trim();
         config.priority = item.config.priority;
       }
       if (item.type === "send_template") {
@@ -230,6 +237,7 @@ function editWorkflow(workflow: AutomationWorkflow) {
     draft.config.template_id = String(item.config.template_id ?? "");
     draft.config.recipient = String(item.config.recipient ?? "");
     draft.config.reason = String(item.config.reason ?? "");
+    draft.config.body = String(item.config.body ?? "");
     return draft;
   });
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -400,7 +408,9 @@ function dateTime(value: string | null) {
                   <div class="form-pair"><label>Ответственный<select v-model="action.config.assignee"><option value="owner">Владелец записи</option><option value="owner_manager">Руководитель владельца</option><option value="actor">Автор события</option></select></label><label>User ID<input v-model="action.config.user_id" placeholder="Необязательно" /></label></div>
                   <label v-if="action.type !== 'assign_owner'">Название<input v-model="action.config.title" required placeholder="Связаться по {{title}}" /></label>
                   <label v-if="action.type === 'request_approval'">Причина<textarea v-model="action.config.reason" rows="2" placeholder="Что нужно согласовать"></textarea></label>
+                  <label v-if="action.type === 'notify_user'">Текст уведомления<textarea v-model="action.config.body" rows="2" placeholder="Что должен увидеть сотрудник"></textarea></label>
                   <div v-if="action.type === 'request_approval'" class="action-fields"><label>SLA, часов<input v-model.number="action.config.due_in_hours" type="number" min="1" max="2160" required /></label><label>Приоритет<select v-model="action.config.priority"><option value="low">Низкий</option><option value="normal">Обычный</option><option value="high">Высокий</option><option value="critical">Критический</option></select></label></div>
+                  <label v-if="action.type === 'notify_user'">Приоритет<select v-model="action.config.priority"><option value="low">Низкий</option><option value="normal">Обычный</option><option value="high">Высокий</option><option value="critical">Критический</option></select></label>
                   <template v-if="action.type === 'create_task' || action.type === 'update_next_action'">
                     <label>Описание<textarea v-model="action.config.description" rows="2" placeholder="Необязательно"></textarea></label>
                     <div class="action-fields"><label>Срок, дней<input v-model.number="action.config.due_in_days" type="number" min="0" max="365" required /></label><label>Приоритет<select v-model="action.config.priority"><option value="low">Низкий</option><option value="normal">Обычный</option><option value="high">Высокий</option></select></label></div>

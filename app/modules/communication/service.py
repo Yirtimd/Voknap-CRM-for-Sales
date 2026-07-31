@@ -12,6 +12,7 @@ from app.modules.activity.service import ActivityService
 from app.modules.automation.service import AutomationEngine
 from app.modules.communication.models import CommunicationEvent
 from app.modules.communication.schemas import CommunicationEventCreate, CommunicationEventLink
+from app.modules.notifications.service import NotificationService
 from app.modules.sales.models import Company, Contact, Deal
 from app.modules.sales.scoring import ScoringService
 
@@ -82,6 +83,21 @@ class CommunicationService:
         )
         self.db.add(event)
         self.db.flush()
+        if event.direction == "inbound":
+            owner_id = self._notification_owner(tenant_id, event)
+            NotificationService(self.db).create(
+                tenant_id=tenant_id,
+                recipient_id=owner_id,
+                event_key=f"communication:inbound:{event.id}",
+                category="communication",
+                priority="normal",
+                title="Новое входящее сообщение",
+                body=event.subject,
+                link=f"/inbox?event={event.id}",
+                source_type="communication",
+                source_id=event.id,
+                metadata={"channel": event.channel},
+            )
         if event.direction == "inbound" and event.contact_id:
             from app.modules.sequences.service import CadenceService
 
@@ -113,6 +129,30 @@ class CommunicationService:
         self.db.commit()
         self.db.refresh(event)
         return event
+
+    def _notification_owner(self, tenant_id: UUID, event: CommunicationEvent) -> UUID | None:
+        if event.deal_id:
+            deal = self.db.query(Deal).filter(
+                Deal.tenant_id == tenant_id,
+                Deal.id == event.deal_id,
+            ).one_or_none()
+            if deal and deal.owner_id:
+                return deal.owner_id
+        if event.contact_id:
+            contact = self.db.query(Contact).filter(
+                Contact.tenant_id == tenant_id,
+                Contact.id == event.contact_id,
+            ).one_or_none()
+            if contact and contact.owner_id:
+                return contact.owner_id
+        if event.company_id:
+            company = self.db.query(Company).filter(
+                Company.tenant_id == tenant_id,
+                Company.id == event.company_id,
+            ).one_or_none()
+            if company:
+                return company.owner_id
+        return None
 
     def ingest(
         self,
