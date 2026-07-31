@@ -94,6 +94,14 @@ describe("GlobalAgentSidebar", () => {
       result: null,
       created_at: "2026-07-30T00:00:00Z",
       confirmed_at: null
+    }, {
+      id: "action-2",
+      action_type: "update_deal",
+      status: "rejected",
+      payload: { title: "Отменённое действие" },
+      result: null,
+      created_at: "2026-07-30T00:00:00Z",
+      confirmed_at: null
     }];
     vi.spyOn(crmStore, "refreshAgent").mockResolvedValue();
     const wrapper = mount(GlobalAgentSidebar, { props: { open: true } });
@@ -103,6 +111,8 @@ describe("GlobalAgentSidebar", () => {
     await actionsTab!.trigger("click");
     expect(wrapper.text()).toContain("Позвонить клиенту");
     expect(wrapper.text()).toContain("Подтвердить действие");
+    expect(wrapper.text()).not.toContain("Отменённое действие");
+    expect(actionsTab!.text()).toContain("1");
     expect(wrapper.find(".agent-composer").exists()).toBe(false);
 
     await wrapper.get('[aria-label="Развернуть AI-ассистента"]').trigger("click");

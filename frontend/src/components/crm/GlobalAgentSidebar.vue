@@ -28,7 +28,9 @@ const importantPrompts = computed(() => {
 });
 
 const visibleHistory = computed(() => crmStore.agentHistory.value.slice(sessionStartIndex.value));
-const pendingActions = computed(() => crmStore.agentActions.value.filter((action) => action.status === "pending"));
+const hiddenActionStatuses = new Set(["rejected", "cancelled", "canceled"]);
+const visibleActions = computed(() => crmStore.agentActions.value.filter((action) => !hiddenActionStatuses.has(action.status)));
+const pendingActions = computed(() => visibleActions.value.filter((action) => action.status === "pending"));
 
 const contextValue = computed(() => {
   const context = crmStore.agentContext.value;
@@ -215,7 +217,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", handleKeydown));
 
     <section v-else class="agent-actions">
       <header><div><h3>Действия AI</h3><p>Изменения CRM требуют подтверждения.</p></div><span>{{ pendingActions.length }} ожидают</span></header>
-      <article v-for="action in crmStore.agentActions.value" :key="action.id" class="action-card">
+      <article v-for="action in visibleActions" :key="action.id" class="action-card">
         <header>
           <strong>{{ action.action_type }}</strong>
           <small>{{ statusLabel(action.status, "aiAction") }}</small>
@@ -226,7 +228,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", handleKeydown));
           <button class="secondary" type="button" @click="crmStore.rejectAgentAction(action.id)">Отклонить</button>
         </div>
       </article>
-      <p v-if="!crmStore.agentActions.value.length" class="agent-actions-empty">Действий пока нет.</p>
+      <p v-if="!visibleActions.length" class="agent-actions-empty">Действий пока нет.</p>
     </section>
   </aside>
 </template>

@@ -46,6 +46,14 @@ async function mockApi(page: Page) {
           result: null,
           created_at: "2026-07-30T10:00:00Z",
           confirmed_at: null
+        }, {
+          id: "action-2",
+          action_type: "update_deal",
+          status: "rejected",
+          payload: { title: "Отменённое действие" },
+          result: null,
+          created_at: "2026-07-30T10:00:00Z",
+          confirmed_at: null
         }]
       });
       return;
@@ -101,5 +109,6 @@ test("AI sidebar prioritizes chat and becomes overlay", async ({ page }) => {
   const actionsBox = await page.locator(".agent-actions").boundingBox();
   expect(Math.round(actionsBox?.height ?? 0)).toBeGreaterThan((viewport?.height ?? 0) - 180);
   await expect(page.getByText("Позвонить клиенту", { exact: true })).toBeVisible();
+  await expect(page.getByText("Отменённое действие", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Подтвердить действие", exact: true })).toBeVisible();
 });
