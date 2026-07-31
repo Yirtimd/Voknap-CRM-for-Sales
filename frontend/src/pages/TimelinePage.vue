@@ -40,7 +40,8 @@ function icon(type: string) {
     FILE: "F",
     COMMENT: "C",
     SYSTEM: "S",
-    AI_ACTION: "AI"
+    AI_ACTION: "AI",
+    CADENCE: "→"
   };
   return map[type] ?? "•";
 }
@@ -68,6 +69,7 @@ function icon(type: string) {
           <option>COMMENT</option>
           <option>SYSTEM</option>
           <option>AI_ACTION</option>
+          <option>CADENCE</option>
         </select>
       </label>
       <label>Заголовок<input v-model="crmStore.activityForm.value.title" /></label>

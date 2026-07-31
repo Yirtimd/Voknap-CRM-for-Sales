@@ -82,6 +82,15 @@ class CommunicationService:
         )
         self.db.add(event)
         self.db.flush()
+        if event.direction == "inbound" and event.contact_id:
+            from app.modules.sequences.service import CadenceService
+
+            CadenceService(self.db).handle_reply(
+                tenant_id=tenant_id,
+                contact_id=event.contact_id,
+                event_id=event.id,
+                actor_id=created_by,
+            )
         AutomationEngine(self.db).emit(
             tenant_id=tenant_id,
             trigger_type="communication.created",

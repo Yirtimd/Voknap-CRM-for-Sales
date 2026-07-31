@@ -6,6 +6,7 @@ import UiIcon from "../ui/UiIcon.vue";
 import type { IconName } from "../ui/icons";
 import { statusLabel } from "../../design-system/statusDictionary";
 import EntityCrudDrawer from "./EntityCrudDrawer.vue";
+import CadencePanel from "./CadencePanel.vue";
 import type { Activity, CommunicationEvent, Company, Contact, NextAction, Note, Task } from "../../types";
 import { crmStore } from "../../stores/crm";
 import { formatStageName } from "../../utils/stages";
@@ -36,6 +37,7 @@ const taskPriorityFilter = ref("all");
 const tabs = [
   { code: "overview", label: "Обзор" },
   { code: "contacts", label: "Контакты" },
+  { code: "sequences", label: "Sequences" },
   { code: "deals", label: "Сделки" },
   { code: "tasks", label: "Задачи" },
   { code: "files", label: "Файлы" },
@@ -896,6 +898,10 @@ function saveNextAction() {
             </article>
           </section>
           <section v-if="!contacts.length" class="empty-state"><strong>Контактов пока нет</strong><p>Добавьте контактное лицо компании.</p></section>
+        </section>
+
+        <section v-else-if="activeTab === 'sequences'" class="ref-card tab-panel">
+          <CadencePanel :company-id="company.id" :contacts="contacts" :deals="deals" />
         </section>
 
         <section v-else-if="activeTab === 'deals'" class="ref-card tab-panel">

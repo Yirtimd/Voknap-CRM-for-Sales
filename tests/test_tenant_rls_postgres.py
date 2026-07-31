@@ -252,6 +252,82 @@ def test_score_snapshots_are_forced_rls_and_default_deny(postgres_connection):
     assert connection.execute(text("SELECT score FROM score_snapshots")).scalar_one() == 80
 
 
+def test_sequence_tables_are_forced_rls_and_tenant_safe(postgres_connection):
+    connection, tenant_a, tenant_b, _company_a, _company_b = postgres_connection
+    user_a, user_b = uuid4(), uuid4()
+    cadence_a, cadence_b = uuid4(), uuid4()
+    connection.execute(
+        text(
+            "INSERT INTO users (id, email, full_name, password_hash, is_active, created_at) VALUES "
+            "(:user_a, :email_a, 'A', 'hash', true, now()), "
+            "(:user_b, :email_b, 'B', 'hash', true, now())"
+        ),
+        {
+            "user_a": user_a,
+            "user_b": user_b,
+            "email_a": f"rls-sequence-a-{user_a}@example.com",
+            "email_b": f"rls-sequence-b-{user_b}@example.com",
+        },
+    )
+    connection.execute(
+        text(
+            "INSERT INTO memberships (id, tenant_id, user_id, role, is_active, created_at) VALUES "
+            "(:member_a, :tenant_a, :user_a, 'owner', true, now()), "
+            "(:member_b, :tenant_b, :user_b, 'owner', true, now())"
+        ),
+        {
+            "member_a": uuid4(),
+            "member_b": uuid4(),
+            "tenant_a": tenant_a,
+            "tenant_b": tenant_b,
+            "user_a": user_a,
+            "user_b": user_b,
+        },
+    )
+    connection.execute(
+        text(
+            "INSERT INTO cadences "
+            "(id, tenant_id, name, is_active, created_by_id, updated_by_id, version, "
+            "created_at, updated_at) VALUES "
+            "(:cadence_a, :tenant_a, 'A', true, :user_a, :user_a, 1, now(), now()), "
+            "(:cadence_b, :tenant_b, 'B', true, :user_b, :user_b, 1, now(), now())"
+        ),
+        {
+            "cadence_a": cadence_a,
+            "cadence_b": cadence_b,
+            "tenant_a": tenant_a,
+            "tenant_b": tenant_b,
+            "user_a": user_a,
+            "user_b": user_b,
+        },
+    )
+    forced = connection.execute(
+        text(
+            "SELECT count(*) FROM pg_class WHERE relname IN "
+            "('cadences', 'cadence_steps', 'cadence_enrollments', 'cadence_executions') "
+            "AND relrowsecurity AND relforcerowsecurity"
+        )
+    ).scalar_one()
+    assert forced == 4
+
+    connection.exec_driver_sql(f'SET LOCAL ROLE "{settings.database_runtime_role}"')
+    assert connection.execute(text("SELECT count(*) FROM cadences")).scalar_one() == 0
+    connection.execute(
+        text("SELECT set_config('app.tenant_id', :tenant_id, true)"),
+        {"tenant_id": str(tenant_a)},
+    )
+    assert connection.execute(text("SELECT name FROM cadences")).scalar_one() == "A"
+    with pytest.raises(IntegrityError):
+        connection.execute(
+            text(
+                "INSERT INTO cadence_steps "
+                "(id, tenant_id, cadence_id, position, step_type, delay_minutes, title, "
+                "task_priority, created_at) VALUES "
+                "(:id, :tenant_id, :cadence_id, 0, 'task', 0, 'Cross tenant', "
+                "'normal', now())"
+            ),
+            {"id": uuid4(), "tenant_id": tenant_a, "cadence_id": cadence_b},
+        )
 def test_workflow_rejects_cross_tenant_actor(postgres_connection):
     connection, tenant_a, tenant_b, _company_a, _company_b = postgres_connection
     user_b = uuid4()

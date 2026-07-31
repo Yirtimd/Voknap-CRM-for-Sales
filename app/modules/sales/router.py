@@ -1436,6 +1436,8 @@ def _normalize_activity_type(activity_type: str, channel: str | None = None) -> 
         return "task"
     if "deal" in value:
         return "deal"
+    if "cadence" in value or "sequence" in value:
+        return "cadence"
     return "system"
 
 
@@ -1447,6 +1449,7 @@ def _activity_icon(activity_type: str) -> str:
         "message": "message",
         "task": "task",
         "deal": "check",
+        "cadence": "sparkles",
     }.get(activity_type, "building")
 
 

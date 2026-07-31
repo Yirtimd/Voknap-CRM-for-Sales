@@ -11,14 +11,17 @@ import app.main  # noqa: E402,F401
 from app.core.database import SessionLocal, set_tenant_context  # noqa: E402
 from app.modules.accounts.models import Tenant  # noqa: E402
 from app.modules.automation.service import AutomationEngine  # noqa: E402
+from app.modules.sequences.service import CadenceService  # noqa: E402
 
 
-def process_once() -> tuple[int, int]:
+def process_once() -> tuple[int, int, int, int]:
     with SessionLocal() as control_db:
         tenant_ids = [row.id for row in control_db.query(Tenant).filter(Tenant.is_active.is_(True))]
 
     evaluated = 0
     matched = 0
+    cadence_evaluated = 0
+    cadence_executed = 0
     for tenant_id in tenant_ids:
         with SessionLocal() as tenant_db:
             tenant_db.info["enforce_tenant_rls"] = True
@@ -29,8 +32,13 @@ def process_once() -> tuple[int, int]:
             )
             evaluated += tenant_evaluated
             matched += tenant_matched
+            tenant_cadence_evaluated, tenant_cadence_executed = CadenceService(
+                tenant_db
+            ).process_due(tenant_id)
+            cadence_evaluated += tenant_cadence_evaluated
+            cadence_executed += tenant_cadence_executed
 
-    return evaluated, matched
+    return evaluated, matched, cadence_evaluated, cadence_executed
 
 
 def main() -> None:
@@ -44,9 +52,11 @@ def main() -> None:
     )
     args = parser.parse_args()
     while True:
-        evaluated, matched = process_once()
+        evaluated, matched, cadence_evaluated, cadence_executed = process_once()
         print(
-            f"Scheduled automation complete: evaluated={evaluated}, matched={matched}",
+            "Scheduled automation complete: "
+            f"evaluated={evaluated}, matched={matched}, "
+            f"cadence_evaluated={cadence_evaluated}, cadence_executed={cadence_executed}",
             flush=True,
         )
         if not args.loop:

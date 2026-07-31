@@ -14,6 +14,7 @@ from app.modules.connectors import models as connectors_models  # noqa: F401
 from app.modules.knowledge import models as knowledge_models  # noqa: F401
 from app.modules.production import models as production_models  # noqa: F401
 from app.modules.sales import models as sales_models  # noqa: F401
+from app.modules.sequences import models as sequence_models  # noqa: F401
 from app.modules.templates import models as templates_models  # noqa: F401
 
 

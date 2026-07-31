@@ -318,8 +318,14 @@ class IntegrationJobService:
                 recipient=payload["recipient"],
                 subject=payload["subject"],
                 body=payload.get("body"),
+                company_id=UUID(payload["company_id"]) if payload.get("company_id") else None,
+                contact_id=UUID(payload["contact_id"]) if payload.get("contact_id") else None,
+                deal_id=UUID(payload["deal_id"]) if payload.get("deal_id") else None,
                 connector_account_id=account.id,
-                metadata={"integration_job_id": str(job.id)},
+                metadata={
+                    "integration_job_id": str(job.id),
+                    "cadence_enrollment_id": payload.get("cadence_enrollment_id"),
+                },
             ),
         )
         return {"communication_event_id": str(event.id)}

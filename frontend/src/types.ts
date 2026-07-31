@@ -755,6 +755,74 @@ export type CommunicationEvent = {
   updated_at: string;
 };
 
+export type CadenceStepType = "task" | "call" | "manual_email" | "automatic_email";
+
+export type CadenceStep = {
+  id: string;
+  position: number;
+  step_type: CadenceStepType;
+  delay_minutes: number;
+  title: string;
+  body: string | null;
+  task_priority: "low" | "normal" | "high" | "urgent";
+};
+
+export type Cadence = {
+  id: string;
+  name: string;
+  description: string | null;
+  is_active: boolean;
+  steps: CadenceStep[];
+  version: number;
+  created_by_id: string;
+  updated_by_id: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CadenceEnrollment = {
+  id: string;
+  cadence_id: string;
+  cadence_name: string;
+  contact_id: string;
+  contact_name: string;
+  company_id: string;
+  deal_id: string | null;
+  connector_account_id: string | null;
+  owner_id: string;
+  status: "active" | "paused" | "completed" | "stopped" | "replied" | "failed";
+  current_step: number;
+  step_count: number;
+  next_run_at: string | null;
+  last_executed_at: string | null;
+  stop_reason: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CadenceExecution = {
+  id: string;
+  enrollment_id: string;
+  step_id: string;
+  step_position: number;
+  step_type: CadenceStepType;
+  title: string;
+  status: "queued" | "succeeded" | "failed" | "skipped";
+  task_id: string | null;
+  communication_event_id: string | null;
+  integration_job_id: string | null;
+  error: string | null;
+  scheduled_at: string;
+  executed_at: string | null;
+};
+
+export type CadenceEmailAccount = {
+  id: string;
+  title: string;
+  status: string;
+};
+
 export type CsvExportResponse = {
   filename: string;
   csv_text: string;
