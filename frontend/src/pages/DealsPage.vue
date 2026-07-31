@@ -45,7 +45,7 @@ const visibleDeals = computed(() => {
     (!filters.value.company || deal.company_id === filters.value.company) &&
     Number(deal.amount ?? 0) >= filters.value.minAmount &&
     (!filters.value.risk || deal.risk_level === filters.value.risk) &&
-    aiScore(deal) >= filters.value.minScore
+    opportunityScore(deal) >= filters.value.minScore
   );
 });
 
@@ -63,22 +63,27 @@ const columns = computed(() =>
 );
 
 const forecast = computed(() =>
-  columns.value.map((column, index) => ({
+  columns.value.map((column) => ({
     ...column,
-    probability: Math.max(20, 80 - index * 15),
-    weighted: column.amount * (Math.max(20, 80 - index * 15) / 100)
+    probability: column.deals.length
+      ? Math.round(column.deals.reduce((sum, deal) => sum + forecastProbability(deal), 0) / column.deals.length)
+      : column.stage.probability,
+    weighted: column.deals.reduce(
+      (sum, deal) => sum + Number(deal.amount ?? 0) * forecastProbability(deal) / 100,
+      0
+    )
   }))
 );
 
 const openDeals = computed(() => crmStore.deals.value.filter((deal) => deal.status !== "won" && deal.status !== "lost"));
 const wonDeals = computed(() => crmStore.deals.value.filter((deal) => deal.status === "won"));
 const lostDeals = computed(() => crmStore.deals.value.filter((deal) => deal.status === "lost"));
-const atRiskDeals = computed(() => openDeals.value.filter((deal) => aiScore(deal) < 45 || deal.risk_level === "high"));
+const atRiskDeals = computed(() => openDeals.value.filter((deal) => opportunityScore(deal) < 45 || deal.risk_level === "high"));
 const likelyDeal = computed(() =>
-  [...openDeals.value].sort((left, right) => aiScore(right) - aiScore(left))[0] ?? crmStore.deals.value[0]
+  [...openDeals.value].sort((left, right) => opportunityScore(right) - opportunityScore(left))[0] ?? crmStore.deals.value[0]
 );
 const forecastAmount = computed(() =>
-  openDeals.value.reduce((sum, deal) => sum + Number(deal.amount ?? 0) * (aiScore(deal) / 100), 0)
+  openDeals.value.reduce((sum, deal) => sum + Number(deal.amount ?? 0) * (forecastProbability(deal) / 100), 0)
 );
 const riskAmount = computed(() => atRiskDeals.value.reduce((sum, deal) => sum + Number(deal.amount ?? 0), 0));
 
@@ -87,7 +92,7 @@ const kpis = computed(() => [
   { label: "Открытые", value: String(openDeals.value.length), delta: "В работе" },
   { label: "Выиграно", value: String(wonDeals.value.length), delta: "Успешные сделки" },
   { label: "Проиграно", value: String(lostDeals.value.length), delta: "Требуют анализа" },
-  { label: "Прогноз", value: crmStore.money(forecastAmount.value), delta: "С учётом AI" }
+  { label: "Прогноз", value: crmStore.money(forecastAmount.value), delta: "С учётом scoring probability" }
 ]);
 
 function companyName(companyId: string) {
@@ -103,18 +108,16 @@ function stageName(stageId: string) {
   return formatStageName(stage?.name ?? stageId);
 }
 
-function aiScore(deal: Deal) {
-  if (typeof deal.probability === "number") return Math.min(98, Math.max(8, deal.probability));
-  const total = Math.max(1, crmStore.allStages.value.length);
-  const stageScore = Math.round(((stageIndex(deal.stage_id) + 1) / total) * 78);
-  const taskBonus = openTasks(deal).length > 0 ? 6 : -5;
-  const riskPenalty = deal.risk_level === "high" ? 28 : deal.risk_level === "medium" ? 12 : 0;
-  const amountSignal = Number(deal.amount ?? 0) > 300000 ? 4 : 0;
-  return Math.min(97, Math.max(18, stageScore + taskBonus + amountSignal - riskPenalty));
+function opportunityScore(deal: Deal) {
+  return deal.opportunity_score ?? 0;
+}
+
+function forecastProbability(deal: Deal) {
+  return deal.forecast_probability ?? deal.probability ?? 0;
 }
 
 function scoreTone(deal: Deal) {
-  const score = aiScore(deal);
+  const score = opportunityScore(deal);
   if (score < 45 || deal.risk_level === "high") return "risk";
   if (score >= 75) return "hot";
   return "steady";
@@ -216,6 +219,13 @@ function openDealAgent() {
   });
 }
 
+async function recalculateSelectedDeal() {
+  if (!selectedDeal.value) return;
+  const dealId = selectedDeal.value.id;
+  await crmStore.recalculateScore("deal", dealId);
+  selectedDeal.value = crmStore.deals.value.find((deal) => deal.id === dealId) ?? selectedDeal.value;
+}
+
 function askDealDocument(documentId: string) {
   const document = crmStore.knowledgeDocuments.value.find((item) => item.id === documentId);
   if (!document) return;
@@ -242,13 +252,12 @@ function dateLabel(value?: string | null) {
 }
 
 function aiReasons(deal: Deal) {
-  const reasons = [];
-  if (deal.risk_level === "high") reasons.push("Высокий риск в текущей воронке");
-  if (openTasks(deal).length === 0) reasons.push("Нет активной задачи для следующего шага");
-  if (!deal.expected_close_date) reasons.push("Дата закрытия не подтверждена");
-  if (aiScore(deal) < 55) reasons.push("Вероятность сделки требует внимания");
-  if (reasons.length === 0) reasons.push("Этап, следующий шаг и задачи согласованы");
-  return reasons;
+  const weakFactors = (deal.score_factors ?? [])
+    .filter((factor) => factor.points < factor.max_points)
+    .sort((left, right) => (right.max_points - right.points) - (left.max_points - left.points))
+    .slice(0, 4)
+    .map((factor) => `${factor.label}: ${factor.signal}`);
+  return weakFactors.length ? weakFactors : ["Все основные факторы заполнены"];
 }
 
 function timelineItems(deal: Deal) {
@@ -384,7 +393,7 @@ watch(
           <input v-model="search" type="search" placeholder="Название или компания..." />
         </label>
         <button type="button" @click="showCreateDeal = true"><UiIcon name="plus" :size="16" /> Новая сделка</button>
-        <button class="secondary" type="button" :disabled="!likelyDeal" @click="selectedDeal = likelyDeal">Обзор AI</button>
+        <button class="secondary" type="button" :disabled="!likelyDeal" @click="selectedDeal = likelyDeal">Обзор scoring</button>
       </div>
     </header>
 
@@ -402,10 +411,10 @@ watch(
     </section>
 
     <section class="ai-overview-panel">
-      <strong>Обзор AI</strong>
+      <strong>Обзор scoring</strong>
       <span>{{ atRiskDeals.length }} сделок требуют внимания.</span>
       <span>Под риском {{ crmStore.money(riskAmount) }}, если следующие действия будут отложены.</span>
-      <span v-if="likelyDeal">Наиболее вероятная: {{ likelyDeal.title }} ({{ aiScore(likelyDeal) }}%).</span>
+      <span v-if="likelyDeal">Наибольший потенциал: {{ likelyDeal.title }} ({{ opportunityScore(likelyDeal) }}/100).</span>
     </section>
 
     <section class="deals-filter-bar">
@@ -416,7 +425,7 @@ watch(
         <select v-model="filters.company" class="filter-chip"><option value="">Все компании</option><option v-for="company in crmStore.companies.value" :key="company.id" :value="company.id">{{ company.name }}</option></select>
         <label class="filter-chip numeric-filter">Сумма от<input v-model.number="filters.minAmount" type="number" min="0" aria-label="Минимальная сумма" /></label>
         <select v-model="filters.risk" class="filter-chip"><option value="">Любой риск</option><option value="high">Высокий риск</option><option value="medium">Средний риск</option><option value="low">Низкий риск</option></select>
-        <label class="filter-chip numeric-filter">AI ≥<input v-model.number="filters.minScore" type="number" min="0" max="100" /></label>
+        <label class="filter-chip numeric-filter">Score ≥<input v-model.number="filters.minScore" type="number" min="0" max="100" /></label>
       </div>
       <button class="secondary save-view-button" type="button" @click="saveView">{{ viewSaved ? "Сохранено" : "Сохранить вид" }}</button>
     </section>
@@ -475,7 +484,7 @@ watch(
               <strong>{{ deal.title }}</strong>
               <small>{{ companyName(deal.company_id) }}</small>
             </div>
-            <span class="ai-score"><UiIcon :name="scoreTone(deal) === 'risk' ? 'alert' : 'sparkles'" :size="14" /> {{ aiScore(deal) }}%</span>
+            <span class="ai-score"><UiIcon :name="scoreTone(deal) === 'risk' ? 'alert' : 'sparkles'" :size="14" /> {{ opportunityScore(deal) }}/100</span>
           </div>
           <div class="deal-amount">{{ crmStore.money(deal.amount) }}</div>
           <div class="next-action-box">
@@ -486,7 +495,7 @@ watch(
             <div><dt>Ответственный</dt><dd>Дмитрий</dd></div>
             <div><dt>Задачи</dt><dd>{{ openTasks(deal).length }} открыто</dd></div>
           </dl>
-          <div class="progress-line deal-health"><span :style="{ width: `${aiScore(deal)}%` }"></span></div>
+          <div class="progress-line deal-health"><span :style="{ width: `${opportunityScore(deal)}%` }"></span></div>
         </article>
         <button class="secondary stage-new" type="button" @click="showCreateDeal = true"><UiIcon name="plus" :size="15" /> Добавить</button>
       </section>
@@ -494,14 +503,14 @@ watch(
 
     <section v-else-if="mode === 'table'" class="panel">
       <table class="data-table">
-        <thead><tr><th>Сделка</th><th>Компания</th><th>Этап</th><th>Сумма</th><th>Оценка AI</th><th>Следующий шаг</th></tr></thead>
+        <thead><tr><th>Сделка</th><th>Компания</th><th>Этап</th><th>Сумма</th><th>Opportunity score</th><th>Следующий шаг</th></tr></thead>
         <tbody>
           <tr v-for="deal in visibleDeals" :key="deal.id" role="button" tabindex="0" @click="selectedDeal = deal" @keydown.enter="selectedDeal = deal" @keydown.space.prevent="selectedDeal = deal">
             <td>{{ deal.title }}</td>
             <td>{{ companyName(deal.company_id) }}</td>
             <td>{{ stageName(deal.stage_id) }}</td>
             <td>{{ crmStore.money(deal.amount) }}</td>
-            <td>{{ aiScore(deal) }}%</td>
+            <td>{{ opportunityScore(deal) }}/100</td>
             <td>{{ nextAction(deal) }}</td>
           </tr>
         </tbody>
@@ -512,7 +521,7 @@ watch(
       <article v-for="deal in visibleDeals" :key="deal.id" class="entity-row" @click="selectedDeal = deal">
         <div>
           <strong>{{ deal.title }}</strong>
-          <small>{{ companyName(deal.company_id) }} · оценка AI {{ aiScore(deal) }}% · {{ nextAction(deal) }}</small>
+          <small>{{ companyName(deal.company_id) }} · score {{ opportunityScore(deal) }}/100 · {{ nextAction(deal) }}</small>
         </div>
         <span>{{ crmStore.money(deal.amount) }}</span>
       </article>
@@ -555,14 +564,15 @@ watch(
           <article>
             <span>Сумма</span>
             <strong>{{ crmStore.money(selectedDeal.amount) }}</strong>
-            <small>Ожидаемый доход: {{ crmStore.money(Number(selectedDeal.amount ?? 0) * aiScore(selectedDeal) / 100) }}</small>
+            <small>Ожидаемый доход: {{ crmStore.money(Number(selectedDeal.amount ?? 0) * forecastProbability(selectedDeal) / 100) }}</small>
           </article>
           <article>
             <span>Вероятность закрытия</span>
-            <strong>{{ aiScore(selectedDeal) }}%</strong>
-            <small :class="{ positive: aiScore(selectedDeal) >= 60, negative: aiScore(selectedDeal) < 45 }">
-              {{ aiScore(selectedDeal) >= 60 ? "Стабильный прогноз" : "Требует внимания" }}
+            <strong>{{ forecastProbability(selectedDeal) }}%</strong>
+            <small :class="{ positive: forecastProbability(selectedDeal) >= 60, negative: forecastProbability(selectedDeal) < 45 }">
+              {{ forecastProbability(selectedDeal) >= 60 ? "Стабильный прогноз" : "Требует внимания" }}
             </small>
+            <small>{{ selectedDeal.probability_source === 'scoring' ? 'Рассчитано scoring rules' : 'Из этапа или вручную' }}</small>
           </article>
           <article>
             <span>Этап</span>
@@ -580,8 +590,8 @@ watch(
 
         <section class="deal-ai-insight-card">
           <div>
-            <h3>Оценка сделки AI</h3>
-            <p>Шанс на успех: <strong>{{ aiScore(selectedDeal) >= 70 ? "Высокий" : aiScore(selectedDeal) >= 45 ? "Средний" : "Низкий" }}</strong></p>
+            <h3>Opportunity score · {{ opportunityScore(selectedDeal) }}/100</h3>
+            <p>Потенциал: <strong>{{ opportunityScore(selectedDeal) >= 75 ? "Высокий" : opportunityScore(selectedDeal) >= 50 ? "Средний" : "Низкий" }}</strong> · {{ selectedDeal.score_model_version ?? 'не рассчитано' }}</p>
             <ul>
               <li v-for="reason in aiReasons(selectedDeal)" :key="reason">{{ reason }}</li>
             </ul>
@@ -592,6 +602,7 @@ watch(
               <li>Подтвердить бюджет и процесс принятия решения</li>
               <li>{{ nextAction(selectedDeal) }}</li>
             </ul>
+            <button class="secondary" type="button" @click="recalculateSelectedDeal">Пересчитать score</button>
           </div>
         </section>
 

@@ -16,6 +16,7 @@ class ForecastSummary(BaseModel):
     overdue_revenue: float
     won_revenue: float
     open_deals: int
+    scoring_coverage_rate: float
 
 
 class ForecastBreakdown(BaseModel):
@@ -35,6 +36,7 @@ class ForecastDataQuality(BaseModel):
     missing_close_date: int
     missing_probability: int
     missing_forecast_category: int
+    missing_opportunity_score: int
 
 
 class StageConversion(BaseModel):

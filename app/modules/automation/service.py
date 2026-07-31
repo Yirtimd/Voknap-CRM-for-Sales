@@ -26,7 +26,11 @@ from app.modules.sales.models import Company, Contact, Deal, Lead, NextAction, P
 
 
 TRIGGER_FIELDS = {
-    "lead.created": {"source", "status", "owner_id", "company_id", "title"},
+    "lead.created": {"source", "status", "owner_id", "company_id", "title", "score", "score_grade"},
+    "lead.score_changed": {
+        "old_score", "new_score", "score_delta", "score_grade", "source", "status",
+        "owner_id", "company_id", "title",
+    },
     "deal.created": {
         "amount",
         "discount_percent",
@@ -35,6 +39,9 @@ TRIGGER_FIELDS = {
         "stage_name",
         "owner_id",
         "company_id",
+        "opportunity_score",
+        "score_grade",
+        "forecast_probability",
     },
     "deal.updated": {
         "amount",
@@ -45,6 +52,9 @@ TRIGGER_FIELDS = {
         "owner_id",
         "company_id",
         "changed_fields",
+        "opportunity_score",
+        "score_grade",
+        "forecast_probability",
     },
     "deal.stage_changed": {
         "amount",
@@ -55,6 +65,13 @@ TRIGGER_FIELDS = {
         "stage_name",
         "owner_id",
         "company_id",
+        "opportunity_score",
+        "score_grade",
+        "forecast_probability",
+    },
+    "deal.score_changed": {
+        "old_score", "new_score", "score_delta", "score_grade", "forecast_probability",
+        "amount", "status", "stage_id", "stage_name", "owner_id", "company_id", "title",
     },
     "communication.created": {
         "channel",
@@ -76,6 +93,9 @@ TRIGGER_FIELDS = {
         "stage_name",
         "owner_id",
         "company_id",
+        "opportunity_score",
+        "score_grade",
+        "forecast_probability",
     },
 }
 ACTION_TYPES = {
@@ -87,9 +107,11 @@ ACTION_TYPES = {
 }
 TRIGGER_ACTIONS = {
     "lead.created": ACTION_TYPES,
+    "lead.score_changed": ACTION_TYPES,
     "deal.created": ACTION_TYPES,
     "deal.updated": ACTION_TYPES,
     "deal.stage_changed": ACTION_TYPES,
+    "deal.score_changed": ACTION_TYPES,
     "communication.created": ACTION_TYPES - {"assign_owner"},
     "schedule.deal_inactive": ACTION_TYPES,
 }
@@ -184,6 +206,27 @@ class AutomationEngine:
         return runs
 
     def run_scheduled(self, tenant_id: UUID, actor_id: UUID | None) -> tuple[int, int]:
+        from app.modules.sales.scoring import ScoringService
+
+        now = _now()
+        scoring = ScoringService(self.db)
+        leads = (
+            self.db.query(Lead)
+            .filter(
+                Lead.tenant_id == tenant_id,
+                Lead.deleted_at.is_(None),
+                Lead.is_archived.is_(False),
+            )
+            .all()
+        )
+        for lead in leads:
+            score_at = _as_utc(lead.score_updated_at) if lead.score_updated_at else None
+            if score_at is None or now - score_at >= timedelta(hours=24):
+                scoring.recalculate_lead(
+                    lead,
+                    actor_id=actor_id,
+                    reason="scheduled_refresh",
+                )
         deals = (
             self.db.query(Deal)
             .filter(
@@ -195,8 +238,14 @@ class AutomationEngine:
             .all()
         )
         run_count = 0
-        now = _now()
         for deal in deals:
+            score_at = _as_utc(deal.score_updated_at) if deal.score_updated_at else None
+            if score_at is None or now - score_at >= timedelta(hours=24):
+                scoring.recalculate_deal(
+                    deal,
+                    actor_id=actor_id,
+                    reason="scheduled_refresh",
+                )
             last_activity = (
                 self.db.query(func.max(Activity.created_at))
                 .filter(Activity.tenant_id == tenant_id, Activity.deal_id == deal.id)
@@ -317,6 +366,9 @@ class AutomationEngine:
             "owner_id": str(deal.owner_id) if deal.owner_id else None,
             "company_id": str(deal.company_id),
             "title": deal.title,
+            "opportunity_score": deal.opportunity_score,
+            "score_grade": deal.score_grade,
+            "forecast_probability": deal.scoring_probability,
         }
 
     def _execute_actions(

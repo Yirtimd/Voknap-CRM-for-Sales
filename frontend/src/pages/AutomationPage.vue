@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 
 import UiIcon from "../components/ui/UiIcon.vue";
 import { statusLabel } from "../design-system/statusDictionary";
@@ -38,12 +38,24 @@ const tabs: Array<{ id: Tab; label: string }> = [
 ];
 const triggers: Array<{ value: AutomationTriggerType; label: string }> = [
   { value: "lead.created", label: "Создан лид" },
+  { value: "lead.score_changed", label: "Изменилась оценка лида" },
   { value: "deal.created", label: "Создана сделка" },
   { value: "deal.updated", label: "Изменена сделка" },
   { value: "deal.stage_changed", label: "Изменён этап сделки" },
+  { value: "deal.score_changed", label: "Изменилась оценка сделки" },
   { value: "communication.created", label: "Создана коммуникация" },
   { value: "schedule.deal_inactive", label: "Сделка без активности" }
 ];
+const triggerFields: Record<AutomationTriggerType, string[]> = {
+  "lead.created": ["source", "status", "owner_id", "company_id", "title", "score", "score_grade"],
+  "lead.score_changed": ["old_score", "new_score", "score_delta", "score_grade", "source", "status", "owner_id", "company_id", "title"],
+  "deal.created": ["amount", "discount_percent", "status", "stage_id", "stage_name", "owner_id", "company_id", "opportunity_score", "score_grade", "forecast_probability"],
+  "deal.updated": ["amount", "discount_percent", "status", "stage_id", "stage_name", "owner_id", "company_id", "changed_fields", "opportunity_score", "score_grade", "forecast_probability"],
+  "deal.stage_changed": ["amount", "discount_percent", "status", "old_stage_id", "stage_id", "stage_name", "owner_id", "company_id", "opportunity_score", "score_grade", "forecast_probability"],
+  "deal.score_changed": ["old_score", "new_score", "score_delta", "score_grade", "forecast_probability", "amount", "status", "stage_id", "stage_name", "owner_id", "company_id", "title"],
+  "communication.created": ["channel", "direction", "status", "sender", "recipient", "company_id", "contact_id", "deal_id", "subject"],
+  "schedule.deal_inactive": ["inactive_days", "amount", "discount_percent", "status", "stage_id", "stage_name", "owner_id", "company_id", "opportunity_score", "score_grade", "forecast_probability"]
+};
 const operators: AutomationConditionOperator[] = ["eq", "neq", "gt", "gte", "lt", "lte", "in", "contains", "is_empty"];
 const actionTypes: Array<{ value: AutomationActionType; label: string; description: string }> = [
   { value: "assign_owner", label: "Назначить владельца", description: "Передать запись ответственному." },
@@ -83,6 +95,12 @@ const templateForm = reactive({ name: "", channel: "email", subject: "", body: "
 const editingWorkflow = computed(() =>
   automationStore.workflows.value.find((item) => item.id === editingWorkflowId.value)
 );
+
+watch(() => workflowForm.trigger_type, (trigger) => {
+  for (const condition of workflowForm.conditions) {
+    if (!triggerFields[trigger].includes(condition.field)) condition.field = "";
+  }
+});
 const denied = computed(() => !automationStore.canOpen.value && !profileError.value);
 
 onMounted(async () => {
@@ -368,7 +386,7 @@ function dateTime(value: string | null) {
             <label>Название<input v-model="workflowForm.name" required minlength="2" /></label>
             <label>Описание<textarea v-model="workflowForm.description" rows="2"></textarea></label>
             <div class="form-pair"><label>Триггер<select v-model="workflowForm.trigger_type"><option v-for="item in triggers" :key="item.value" :value="item.value">{{ item.label }}</option></select></label><label>Приоритет<input v-model.number="workflowForm.priority" type="number" min="0" max="10000" /></label></div>
-            <fieldset><legend>Conditions <button class="secondary mini" type="button" @click="addCondition"><UiIcon name="plus" :size="14" /> Условие</button></legend><label>Логика<select v-model="workflowForm.condition_logic"><option value="all">Все условия</option><option value="any">Любое условие</option></select></label><div v-for="(condition, index) in workflowForm.conditions" :key="index" class="builder-row condition-row"><input v-model="condition.field" required placeholder="discount_percent" pattern="[a-z][a-z0-9_.]*" /><select v-model="condition.operator"><option v-for="operator in operators" :key="operator" :value="operator">{{ operator }}</option></select><input v-model="condition.value" :disabled="condition.operator === 'is_empty'" placeholder="Значение" /><button class="remove-button" type="button" aria-label="Удалить условие" @click="workflowForm.conditions.splice(index, 1)"><UiIcon name="close" :size="15" /></button></div><p v-if="!workflowForm.conditions.length" class="empty">Без условий — сценарий сработает для каждого события.</p></fieldset>
+            <fieldset><legend>Conditions <button class="secondary mini" type="button" @click="addCondition"><UiIcon name="plus" :size="14" /> Условие</button></legend><label>Логика<select v-model="workflowForm.condition_logic"><option value="all">Все условия</option><option value="any">Любое условие</option></select></label><div v-for="(condition, index) in workflowForm.conditions" :key="index" class="builder-row condition-row"><select v-model="condition.field" required><option value="" disabled>Поле события</option><option v-for="field in triggerFields[workflowForm.trigger_type]" :key="field" :value="field">{{ field }}</option></select><select v-model="condition.operator"><option v-for="operator in operators" :key="operator" :value="operator">{{ operator }}</option></select><input v-model="condition.value" :disabled="condition.operator === 'is_empty'" placeholder="Значение" /><button class="remove-button" type="button" aria-label="Удалить условие" @click="workflowForm.conditions.splice(index, 1)"><UiIcon name="close" :size="15" /></button></div><p v-if="!workflowForm.conditions.length" class="empty">Без условий — сценарий сработает для каждого события.</p></fieldset>
             <fieldset>
               <legend>Действия <button class="secondary mini" type="button" @click="addAction"><UiIcon name="plus" :size="14" /> Действие</button></legend>
               <div v-for="(action, index) in workflowForm.actions" :key="index" class="action-builder">

@@ -155,6 +155,31 @@ class CustomerInsightResponse(CustomerInsightUpsert):
     updated_at: datetime
 
 
+class ScoreFactor(BaseModel):
+    key: str
+    label: str
+    points: int
+    max_points: int
+    signal: str
+
+
+class ScoreSnapshotResponse(BaseModel):
+    id: UUID
+    entity_type: str
+    entity_id: UUID
+    score: int
+    previous_score: int | None
+    grade: str
+    factors: list[ScoreFactor]
+    forecast_probability: int | None
+    model_version: str
+    calculation_reason: str
+    calculated_by_id: UUID | None
+    calculated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class LeadCreate(BaseModel):
     company_id: UUID
     title: str = Field(min_length=2, max_length=255)
@@ -172,6 +197,11 @@ class LeadResponse(BaseModel):
     contact_id: UUID | None
     owner_id: UUID | None = None
     queue_id: UUID | None = None
+    score: int | None = None
+    score_grade: str | None = None
+    score_factors: list[ScoreFactor] = Field(default_factory=list)
+    score_model_version: str | None = None
+    score_updated_at: datetime | None = None
     qualified_at: datetime | None = None
     converted_at: datetime | None = None
     converted_deal_id: UUID | None = None
@@ -278,6 +308,13 @@ class DealResponse(BaseModel):
     next_step: str | None
     risk_level: str | None
     forecast_category: str | None
+    opportunity_score: int | None = None
+    score_grade: str | None = None
+    score_factors: list[ScoreFactor] = Field(default_factory=list)
+    forecast_probability: int | None = None
+    probability_source: str = "stage_or_manual"
+    score_model_version: str | None = None
+    score_updated_at: datetime | None = None
     owner_id: UUID | None = None
     next_action_id: UUID | None = None
     age_days: int | None = None

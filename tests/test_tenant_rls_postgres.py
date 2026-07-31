@@ -215,6 +215,43 @@ def test_automation_tables_are_forced_rls_and_default_deny(postgres_connection):
     assert connection.execute(text("SELECT name FROM message_templates")).scalar_one() == "A"
 
 
+def test_score_snapshots_are_forced_rls_and_default_deny(postgres_connection):
+    connection, tenant_a, tenant_b, _company_a, _company_b = postgres_connection
+    connection.execute(
+        text(
+            "INSERT INTO score_snapshots "
+            "(id, tenant_id, entity_type, entity_id, score, grade, factors_json, "
+            "model_version, calculation_reason, calculated_at) VALUES "
+            "(:id_a, :tenant_a, 'lead', :entity_a, 80, 'hot', '[]', "
+            "'rules-v1', 'test', now()), "
+            "(:id_b, :tenant_b, 'deal', :entity_b, 40, 'cold', '[]', "
+            "'rules-v1', 'test', now())"
+        ),
+        {
+            "id_a": uuid4(),
+            "id_b": uuid4(),
+            "tenant_a": tenant_a,
+            "tenant_b": tenant_b,
+            "entity_a": uuid4(),
+            "entity_b": uuid4(),
+        },
+    )
+    forced = connection.execute(
+        text(
+            "SELECT relrowsecurity AND relforcerowsecurity "
+            "FROM pg_class WHERE relname = 'score_snapshots'"
+        )
+    ).scalar_one()
+    assert forced is True
+    connection.exec_driver_sql(f'SET LOCAL ROLE "{settings.database_runtime_role}"')
+    assert connection.execute(text("SELECT count(*) FROM score_snapshots")).scalar_one() == 0
+    connection.execute(
+        text("SELECT set_config('app.tenant_id', :tenant_id, true)"),
+        {"tenant_id": str(tenant_a)},
+    )
+    assert connection.execute(text("SELECT score FROM score_snapshots")).scalar_one() == 80
+
+
 def test_workflow_rejects_cross_tenant_actor(postgres_connection):
     connection, tenant_a, tenant_b, _company_a, _company_b = postgres_connection
     user_b = uuid4()

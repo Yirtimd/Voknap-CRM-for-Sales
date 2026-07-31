@@ -40,6 +40,8 @@ def _money(value: object) -> float:
 
 
 def _probability(deal: Deal) -> int:
+    if deal.scoring_probability is not None:
+        return max(0, min(100, deal.scoring_probability))
     if deal.probability is not None:
         return max(0, min(100, deal.probability))
     return {"commit": 90, "best_case": 60, "pipeline": 35}.get(
@@ -224,6 +226,10 @@ class AnalyticsService:
             ),
             won_revenue=total([deal for deal in deals if str(deal.status).lower() == "won"]),
             open_deals=len(open_deals),
+            scoring_coverage_rate=_percent(
+                sum(deal.opportunity_score is not None for deal in open_deals),
+                len(open_deals),
+            ),
         )
 
     @classmethod
@@ -257,16 +263,27 @@ class AnalyticsService:
         open_deals = [deal for deal in deals if _is_open(deal)]
         missing_owner = sum(deal.owner_id is None for deal in open_deals)
         missing_close_date = sum(deal.expected_close_date is None for deal in open_deals)
-        missing_probability = sum(deal.probability is None for deal in open_deals)
+        missing_probability = sum(
+            deal.probability is None and deal.scoring_probability is None
+            for deal in open_deals
+        )
         missing_category = sum(not deal.forecast_category for deal in open_deals)
-        expected = len(open_deals) * 4
-        missing = missing_owner + missing_close_date + missing_probability + missing_category
+        missing_score = sum(deal.opportunity_score is None for deal in open_deals)
+        expected = len(open_deals) * 5
+        missing = (
+            missing_owner
+            + missing_close_date
+            + missing_probability
+            + missing_category
+            + missing_score
+        )
         return ForecastDataQuality(
             completeness_rate=_percent(expected - missing, expected),
             missing_owner=missing_owner,
             missing_close_date=missing_close_date,
             missing_probability=missing_probability,
             missing_forecast_category=missing_category,
+            missing_opportunity_score=missing_score,
         )
 
     @staticmethod

@@ -110,7 +110,7 @@ const kpis = computed(() => [
     panel: "conversion" as AnalyticsPanel,
     label: "Вероятность успеха",
     value: `${goalProgress.value}%`,
-    trend: "Расчёт AI",
+    trend: `Scoring ${forecast.value?.scoring_coverage_rate ?? 0}%`,
     detail: "вероятность плана",
     direction: "up"
   },
@@ -140,13 +140,15 @@ const detail = computed(() => {
         ["Открытая воронка", crmStore.money(forecast.value?.open_pipeline)],
         ["Закрытие в периоде", crmStore.money(forecast.value?.due_in_period)],
         ["Взвешенная выручка", crmStore.money(forecast.value?.weighted_revenue)],
-        ["Просроченная выручка", crmStore.money(forecast.value?.overdue_revenue)]
+        ["Просроченная выручка", crmStore.money(forecast.value?.overdue_revenue)],
+        ["Покрытие scoring", `${forecast.value?.scoring_coverage_rate ?? 0}%`]
       ],
       rows: [
         ["Подтверждено", crmStore.money(forecast.value?.commit_revenue)],
         ["Лучший сценарий", crmStore.money(forecast.value?.best_case_revenue)],
         ["Воронка", crmStore.money(forecast.value?.pipeline_revenue)],
-        ["Выиграно", crmStore.money(forecast.value?.won_revenue)]
+        ["Выиграно", crmStore.money(forecast.value?.won_revenue)],
+        ["Без opportunity score", `${forecastQuality.value?.missing_opportunity_score ?? 0}`]
       ],
       link: "/deals",
       linkLabel: "Открыть сделки"

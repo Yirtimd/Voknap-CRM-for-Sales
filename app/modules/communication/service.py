@@ -13,6 +13,7 @@ from app.modules.automation.service import AutomationEngine
 from app.modules.communication.models import CommunicationEvent
 from app.modules.communication.schemas import CommunicationEventCreate, CommunicationEventLink
 from app.modules.sales.models import Company, Contact, Deal
+from app.modules.sales.scoring import ScoringService
 
 
 class CommunicationService:
@@ -191,6 +192,16 @@ class CommunicationService:
         event.activity_id = activity.id
         event.status = "activity_created"
         event.updated_at = datetime.now(timezone.utc)
+        if event.deal_id:
+            deal = self.db.query(Deal).filter(
+                Deal.tenant_id == tenant_id,
+                Deal.id == event.deal_id,
+            ).one()
+            ScoringService(self.db).recalculate_deal(
+                deal,
+                actor_id=created_by,
+                reason="communication_activity_created",
+            )
         self.db.commit()
         self.db.refresh(event)
         return event

@@ -11,6 +11,8 @@ from app.modules.activity.models import Activity
 from app.modules.activity.schemas import ActivityCreate, ActivityResponse
 from app.modules.activity.service import ActivityService
 from app.modules.sales.authorization import require_company_write_access
+from app.modules.sales.models import Deal
+from app.modules.sales.scoring import ScoringService
 
 
 router = APIRouter()
@@ -60,6 +62,17 @@ def create_activity(
         deal_id=payload.deal_id,
         metadata=payload.metadata,
     )
+    if activity.deal_id:
+        deal = db.query(Deal).filter(
+            Deal.tenant_id == tenant.id,
+            Deal.id == activity.deal_id,
+        ).one()
+        ScoringService(db).recalculate_deal(
+            deal,
+            actor_id=tenant.user_id,
+            reason="activity_created",
+        )
+        db.commit()
     return _activity_response(activity)
 
 

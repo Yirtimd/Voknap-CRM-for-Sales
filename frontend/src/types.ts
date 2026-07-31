@@ -248,6 +248,11 @@ export type Lead = {
   status: string;
   contact_id: string | null;
   owner_id?: string | null;
+  score?: number | null;
+  score_grade?: "hot" | "warm" | "cold" | null;
+  score_factors?: ScoreFactor[];
+  score_model_version?: string | null;
+  score_updated_at?: string | null;
   qualified_at?: string | null;
   converted_at?: string | null;
   converted_deal_id?: string | null;
@@ -297,6 +302,13 @@ export type Deal = {
   next_step?: string | null;
   risk_level?: string | null;
   forecast_category?: string | null;
+  opportunity_score?: number | null;
+  score_grade?: "hot" | "warm" | "cold" | null;
+  score_factors?: ScoreFactor[];
+  forecast_probability?: number | null;
+  probability_source?: "scoring" | "stage_or_manual";
+  score_model_version?: string | null;
+  score_updated_at?: string | null;
   owner_id?: string | null;
   next_action_id?: string | null;
   age_days?: number | null;
@@ -309,11 +321,21 @@ export type Deal = {
 
 export type AutomationTriggerType =
   | "lead.created"
+  | "lead.score_changed"
   | "deal.created"
   | "deal.updated"
   | "deal.stage_changed"
+  | "deal.score_changed"
   | "communication.created"
   | "schedule.deal_inactive";
+
+export type ScoreFactor = {
+  key: string;
+  label: string;
+  points: number;
+  max_points: number;
+  signal: string;
+};
 
 export type AutomationConditionOperator =
   | "eq"
@@ -809,8 +831,9 @@ export type AnalyticsOverview = {
     best_case_revenue: number;
     pipeline_revenue: number;
     overdue_revenue: number;
-    won_revenue: number;
-    open_deals: number;
+      won_revenue: number;
+      open_deals: number;
+      scoring_coverage_rate: number;
   };
   forecast_by_owner: Array<{
     scope_id: string | null;
@@ -838,6 +861,7 @@ export type AnalyticsOverview = {
     missing_close_date: number;
     missing_probability: number;
     missing_forecast_category: number;
+    missing_opportunity_score: number;
   };
   stage_conversion: Array<{
     pipeline_id: string;

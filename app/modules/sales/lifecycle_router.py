@@ -62,6 +62,7 @@ from app.modules.sales.models import (
     PipelineStage,
     Task,
 )
+from app.modules.sales.scoring import ScoringService
 from app.modules.sales.schemas import (
     ContactResponse,
     DealResponse,
@@ -496,6 +497,11 @@ def qualify_lead(
         metadata={"lead_id": str(lead.id)},
         commit=False,
     )
+    ScoringService(db).recalculate_lead(
+        lead,
+        actor_id=tenant.user_id,
+        reason="lead_qualified" if payload.qualified else "lead_disqualified",
+    )
     commit_versioned(db, lead)
     return lead
 
@@ -562,6 +568,27 @@ def convert_lead(
         metadata={"lead_id": str(lead.id), "deal_id": str(deal.id)},
         commit=False,
     )
+    scoring = ScoringService(db)
+    scoring.recalculate_lead(
+        lead,
+        actor_id=tenant.user_id,
+        reason="lead_converted",
+    )
+    scoring.recalculate_deal(
+        deal,
+        actor_id=tenant.user_id,
+        reason="lead_conversion",
+    )
+    automation = AutomationEngine(db)
+    automation.emit(
+        tenant_id=tenant.id,
+        trigger_type="deal.created",
+        entity_type="deal",
+        entity_id=deal.id,
+        event_key=f"deal.created:{deal.id}",
+        context=automation.deal_context(deal),
+        actor_id=tenant.user_id,
+    )
     commit_versioned(db, lead)
     db.refresh(deal)
     return LeadConversionResponse(
@@ -584,6 +611,25 @@ def _update_entity(
     _validate_relations(db, tenant, entity_type, entity, update_data)
     old_stage_id = entity.stage_id if entity_type == "deals" else None
     changed_fields = apply_update(db, tenant, entity_type, entity, update_data)
+    if changed_fields and entity_type == "leads":
+        ScoringService(db).recalculate_lead(
+            entity,
+            actor_id=tenant.user_id,
+            reason="lead_updated",
+        )
+    elif changed_fields and entity_type == "deals":
+        ScoringService(db).recalculate_deal(
+            entity,
+            actor_id=tenant.user_id,
+            reason="deal_updated",
+        )
+    elif changed_fields and entity_type == "tasks" and entity.deal_id:
+        deal = get_entity(db, tenant.id, "deals", entity.deal_id)
+        ScoringService(db).recalculate_deal(
+            deal,
+            actor_id=tenant.user_id,
+            reason="task_updated",
+        )
     if entity_type == "deals" and changed_fields:
         automation = AutomationEngine(db)
         context = automation.deal_context(entity)

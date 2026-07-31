@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
@@ -209,6 +210,9 @@ class Lead(Base):
         ),
         deferred_relations=(("converted_deal_id", "deals"),),
         membership_columns=("owner_id", "qualified_by_id", "converted_by_id", "deleted_by_id"),
+        extra=(
+            CheckConstraint("score >= 0 AND score <= 100", name="ck_leads_score"),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -220,6 +224,11 @@ class Lead(Base):
     status: Mapped[str] = mapped_column(String(80), default="new")
     owner_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), index=True)
     queue_id: Mapped[UUID | None] = mapped_column(index=True)
+    score: Mapped[int | None] = mapped_column(Integer, index=True)
+    score_grade: Mapped[str | None] = mapped_column(String(20), index=True)
+    score_factors_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    score_model_version: Mapped[str | None] = mapped_column(String(40))
+    score_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     qualified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     qualified_by_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"))
     converted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -247,6 +256,10 @@ class Lead(Base):
         back_populates="lead", foreign_keys="Note.lead_id"
     )
 
+    @property
+    def score_factors(self) -> list[dict]:
+        return json.loads(self.score_factors_json or "[]")
+
 
 class Deal(Base):
     __tablename__ = "deals"
@@ -259,6 +272,16 @@ class Deal(Base):
         ),
         deferred_relations=(("next_action_id", "next_actions"),),
         membership_columns=("owner_id", "deleted_by_id"),
+        extra=(
+            CheckConstraint(
+                "opportunity_score >= 0 AND opportunity_score <= 100",
+                name="ck_deals_opportunity_score",
+            ),
+            CheckConstraint(
+                "scoring_probability >= 0 AND scoring_probability <= 100",
+                name="ck_deals_scoring_probability",
+            ),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -276,6 +299,12 @@ class Deal(Base):
     next_step: Mapped[str | None] = mapped_column(String(255))
     risk_level: Mapped[str | None] = mapped_column(String(40))
     forecast_category: Mapped[str | None] = mapped_column(String(40))
+    opportunity_score: Mapped[int | None] = mapped_column(Integer, index=True)
+    score_grade: Mapped[str | None] = mapped_column(String(20), index=True)
+    score_factors_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    scoring_probability: Mapped[int | None] = mapped_column(Integer)
+    score_model_version: Mapped[str | None] = mapped_column(String(40))
+    score_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     owner_id: Mapped[UUID | None] = mapped_column()
     next_action_id: Mapped[UUID | None] = mapped_column(
         ForeignKey(
@@ -307,6 +336,67 @@ class Deal(Base):
     notes: Mapped[list["Note"]] = relationship(
         back_populates="deal", foreign_keys="Note.deal_id"
     )
+
+    @property
+    def score_factors(self) -> list[dict]:
+        return json.loads(self.score_factors_json or "[]")
+
+    @property
+    def forecast_probability(self) -> int | None:
+        return self.scoring_probability
+
+    @property
+    def probability_source(self) -> str:
+        return "scoring" if self.scoring_probability is not None else "stage_or_manual"
+
+
+class ScoreSnapshot(Base):
+    __tablename__ = "score_snapshots"
+    __table_args__ = tenant_table_args(
+        "score_snapshots",
+        membership_columns=("calculated_by_id",),
+        extra=(
+            CheckConstraint(
+                "entity_type IN ('lead', 'deal')",
+                name="ck_score_snapshots_entity_type",
+            ),
+            CheckConstraint("score >= 0 AND score <= 100", name="ck_score_snapshots_score"),
+            CheckConstraint(
+                "previous_score IS NULL OR (previous_score >= 0 AND previous_score <= 100)",
+                name="ck_score_snapshots_previous_score",
+            ),
+            CheckConstraint(
+                "forecast_probability IS NULL OR "
+                "(forecast_probability >= 0 AND forecast_probability <= 100)",
+                name="ck_score_snapshots_forecast_probability",
+            ),
+            Index(
+                "ix_score_snapshots_entity_history",
+                "tenant_id",
+                "entity_type",
+                "entity_id",
+                "calculated_at",
+            ),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    tenant_id: Mapped[UUID] = mapped_column(index=True, nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    entity_id: Mapped[UUID] = mapped_column(nullable=False, index=True)
+    score: Mapped[int] = mapped_column(Integer, nullable=False)
+    previous_score: Mapped[int | None] = mapped_column(Integer)
+    grade: Mapped[str] = mapped_column(String(20), nullable=False)
+    factors_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    forecast_probability: Mapped[int | None] = mapped_column(Integer)
+    model_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    calculation_reason: Mapped[str] = mapped_column(String(80), nullable=False)
+    calculated_by_id: Mapped[UUID | None] = mapped_column(index=True)
+    calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    @property
+    def factors(self) -> list[dict]:
+        return json.loads(self.factors_json or "[]")
 
 
 class Task(Base):

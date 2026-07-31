@@ -1238,6 +1238,19 @@ async function createNote(target: "lead" | "deal", id: string) {
   }, "Заметка создана");
 }
 
+async function recalculateScore(entityType: "lead" | "deal", entityId: string) {
+  await run(async () => {
+    await api(
+      `/sales/scoring/${entityType}/${entityId}/recalculate`,
+      post({}),
+      token.value,
+      tenantId.value
+    );
+    await refreshAll();
+    await refreshAnalytics();
+  }, entityType === "lead" ? "Оценка лида обновлена" : "Оценка сделки обновлена");
+}
+
 function money(value: number | null | undefined) {
   return new Intl.NumberFormat("ru-RU", {
     style: "currency",
@@ -1356,6 +1369,7 @@ export const crmStore = {
   toggleNextAction,
   toggleTask,
   createNote,
+  recalculateScore,
   createKnowledgeDocument,
   uploadKnowledgeDocument,
   downloadKnowledgeDocument,

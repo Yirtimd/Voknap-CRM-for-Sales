@@ -42,8 +42,9 @@ class AutomationWorkflow(Base):
         extra=(
             UniqueConstraint("tenant_id", "name", name="uq_automation_workflows_tenant_name"),
             CheckConstraint(
-                "trigger_type IN ('lead.created', 'deal.created', 'deal.updated', "
-                "'deal.stage_changed', 'communication.created', 'schedule.deal_inactive')",
+                "trigger_type IN ('lead.created', 'lead.score_changed', 'deal.created', "
+                "'deal.updated', 'deal.stage_changed', 'deal.score_changed', "
+                "'communication.created', 'schedule.deal_inactive')",
                 name="ck_automation_workflows_trigger",
             ),
         ),

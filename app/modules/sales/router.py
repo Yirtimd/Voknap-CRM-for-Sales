@@ -37,6 +37,7 @@ from app.modules.sales.models import (
     Task,
 )
 from app.modules.sales.querying import apply_list_contract
+from app.modules.sales.scoring import ScoringService
 from app.modules.sales.stages import stage_label_ru
 from app.modules.sales.schemas import (
     CompanyCreate,
@@ -466,6 +467,11 @@ def create_lead(
         metadata={"lead_id": str(lead.id), "source": lead.source},
         commit=False,
     )
+    ScoringService(db).recalculate_lead(
+        lead,
+        actor_id=tenant.user_id,
+        reason="lead_created",
+    )
     AutomationEngine(db).emit(
         tenant_id=tenant.id,
         trigger_type="lead.created",
@@ -478,6 +484,8 @@ def create_lead(
             "owner_id": str(lead.owner_id) if lead.owner_id else None,
             "company_id": str(lead.company_id),
             "title": lead.title,
+            "score": lead.score,
+            "score_grade": lead.score_grade,
         },
         actor_id=tenant.user_id,
     )
@@ -685,6 +693,11 @@ def create_deal(
         metadata={"deal_id": str(deal.id), "amount": float(deal.amount or 0)},
         commit=False,
     )
+    ScoringService(db).recalculate_deal(
+        deal,
+        actor_id=tenant.user_id,
+        reason="deal_created",
+    )
     automation = AutomationEngine(db)
     automation.emit(
         tenant_id=tenant.id,
@@ -789,6 +802,12 @@ def create_next_action(
         metadata={"next_action_id": str(next_action.id), "priority": next_action.priority},
         commit=False,
     )
+    if next_action.deal_id:
+        ScoringService(db).recalculate_deal(
+            deal,
+            actor_id=tenant.user_id,
+            reason="next_action_created",
+        )
     db.commit()
     db.refresh(next_action)
     return next_action
@@ -848,6 +867,12 @@ def set_next_action_done(
         metadata={"next_action_id": str(next_action.id), "done": payload.is_done},
         commit=False,
     )
+    if deal:
+        ScoringService(db).recalculate_deal(
+            deal,
+            actor_id=tenant.user_id,
+            reason="next_action_completed" if payload.is_done else "next_action_reopened",
+        )
     db.commit()
     db.refresh(next_action)
     return next_action
@@ -893,6 +918,11 @@ def move_deal(
         description=f"{deal.title}: новый этап — {stage_label_ru(new_stage.name)}",
         metadata={"old_stage_id": str(old_stage_id), "new_stage_id": str(payload.stage_id)},
         commit=False,
+    )
+    ScoringService(db).recalculate_deal(
+        deal,
+        actor_id=tenant.user_id,
+        reason="stage_changed",
     )
     automation = AutomationEngine(db)
     context = automation.deal_context(deal)
@@ -946,6 +976,12 @@ def create_task(
         metadata={"task_id": str(task.id)},
         commit=False,
     )
+    if task.deal_id:
+        ScoringService(db).recalculate_deal(
+            deal,
+            actor_id=tenant.user_id,
+            reason="task_created",
+        )
     db.commit()
     db.refresh(task)
     return task
@@ -1040,6 +1076,13 @@ def set_task_done(
         metadata={"task_id": str(task.id), "done": payload.is_done},
         commit=False,
     )
+    if task.deal_id:
+        deal = _get_for_tenant(db, Deal, tenant.id, task.deal_id)
+        ScoringService(db).recalculate_deal(
+            deal,
+            actor_id=tenant.user_id,
+            reason="task_completed" if payload.is_done else "task_reopened",
+        )
     commit_versioned(db, task)
     return task
 
@@ -1194,6 +1237,13 @@ def _deal_response(deal: Deal) -> DealResponse:
         next_step=deal.next_step,
         risk_level=deal.risk_level,
         forecast_category=deal.forecast_category,
+        opportunity_score=deal.opportunity_score,
+        score_grade=deal.score_grade,
+        score_factors=deal.score_factors,
+        forecast_probability=deal.forecast_probability,
+        probability_source=deal.probability_source,
+        score_model_version=deal.score_model_version,
+        score_updated_at=deal.score_updated_at,
         owner_id=deal.owner_id,
         next_action_id=deal.next_action_id,
         age_days=_age_days(deal.created_at),

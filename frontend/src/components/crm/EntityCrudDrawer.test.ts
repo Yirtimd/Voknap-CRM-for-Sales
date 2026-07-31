@@ -14,6 +14,18 @@ const lead: Lead = {
   status: "new",
   contact_id: null,
   owner_id: "user-1",
+  score: 78,
+  score_grade: "hot",
+  score_model_version: "rules-v1",
+  score_factors: [
+    {
+      key: "source",
+      label: "Качество источника",
+      points: 20,
+      max_points: 20,
+      signal: "referral"
+    }
+  ],
   is_archived: false,
   deleted_at: null,
   version: 3
@@ -39,6 +51,7 @@ beforeEach(() => {
     client_since: null,
     created_at: "2026-01-01T00:00:00Z"
   }];
+  crmStore.leads.value = [lead];
 });
 
 afterEach(() => vi.restoreAllMocks());
@@ -69,6 +82,19 @@ describe("EntityCrudDrawer", () => {
     expect(wrapper.text()).toContain("Новый контакт");
     expect(wrapper.get('select').element.value).toBe("company-1");
     expect(wrapper.text()).toContain("Создать");
+  });
+
+  it("shows explainable lead score factors", async () => {
+    const wrapper = mount(EntityCrudDrawer, {
+      props: { entityType: "leads", record: lead },
+      global: { stubs: { RouterLink: { template: "<a><slot /></a>" } } }
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Lead score");
+    expect(wrapper.text()).toContain("78/100");
+    expect(wrapper.text()).toContain("Качество источника");
+    expect(wrapper.text()).toContain("+20/20");
   });
 
   it("shows only duplicate candidates returned by backend", async () => {

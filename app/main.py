@@ -26,6 +26,7 @@ from app.modules.me.router import router as me_router
 from app.modules.production.router import router as production_router
 from app.modules.sales.router import router as sales_router
 from app.modules.sales.lifecycle_router import router as sales_lifecycle_router
+from app.modules.sales.scoring_router import router as sales_scoring_router
 from app.modules.templates.router import router as templates_router
 
 
@@ -58,6 +59,7 @@ app.include_router(me_router, tags=["me"])
 app.include_router(activity_router, prefix="/activities", tags=["activities"])
 app.include_router(sales_router, prefix="/sales", tags=["sales"])
 app.include_router(sales_lifecycle_router, prefix="/sales", tags=["sales-lifecycle"])
+app.include_router(sales_scoring_router, prefix="/sales", tags=["sales-scoring"])
 app.include_router(knowledge_router, prefix="/knowledge", tags=["knowledge"])
 app.include_router(ai_agent_router, prefix="/ai-agent", tags=["ai-agent"])
 app.include_router(analytics_router, prefix="/analytics", tags=["analytics"])

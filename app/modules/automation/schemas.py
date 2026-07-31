@@ -7,9 +7,11 @@ from pydantic import BaseModel, Field, model_validator
 
 TriggerType = Literal[
     "lead.created",
+    "lead.score_changed",
     "deal.created",
     "deal.updated",
     "deal.stage_changed",
+    "deal.score_changed",
     "communication.created",
     "schedule.deal_inactive",
 ]

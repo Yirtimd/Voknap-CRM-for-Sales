@@ -5,7 +5,7 @@ import UiIcon from "../ui/UiIcon.vue";
 import { ENTITY_CONFIG, type LifecycleField } from "../../lifecycleConfig";
 import { crmStore } from "../../stores/crm";
 import { lifecycleStore, type LifecycleRecord } from "../../stores/lifecycle";
-import type { DuplicateCandidate, EntityType, FieldChange, Lead } from "../../types";
+import type { Deal, DuplicateCandidate, EntityType, FieldChange, Lead, ScoreFactor } from "../../types";
 
 const props = withDefaults(defineProps<{
   entityType: EntityType;
@@ -295,6 +295,53 @@ function recordOwner(record: LifecycleRecord) {
   if ("author_id" in record) return record.author_id ?? null;
   return null;
 }
+
+function scoringRecord() {
+  return current.value as Lead | Deal | null;
+}
+
+function currentScore() {
+  const record = scoringRecord();
+  if (!record) return null;
+  return props.entityType === "leads"
+    ? (record as Lead).score ?? null
+    : (record as Deal).opportunity_score ?? null;
+}
+
+function scoreFactors(): ScoreFactor[] {
+  return scoringRecord()?.score_factors ?? [];
+}
+
+function forecastProbability() {
+  return props.entityType === "deals"
+    ? (scoringRecord() as Deal | null)?.forecast_probability ?? null
+    : null;
+}
+
+function scoreGradeLabel() {
+  const grade = scoringRecord()?.score_grade;
+  if (grade === "hot") return "Высокий потенциал";
+  if (grade === "warm") return "Средний потенциал";
+  return "Требует развития";
+}
+
+async function recalculateCurrentScore() {
+  if (!current.value || !["leads", "deals"].includes(props.entityType)) return;
+  busy.value = true;
+  error.value = "";
+  await crmStore.recalculateScore(
+    props.entityType === "leads" ? "lead" : "deal",
+    current.value.id
+  );
+  const updated = crmList(props.entityType).find((item) => item.id === current.value?.id);
+  if (updated) {
+    current.value = updated;
+    emit("saved", updated);
+  }
+  error.value = crmStore.error.value;
+  ok.value = crmStore.error.value ? "" : "Оценка пересчитана";
+  busy.value = false;
+}
 </script>
 
 <template>
@@ -327,6 +374,23 @@ function recordOwner(record: LifecycleRecord) {
         </div>
         <dl class="crud-fields"><template v-for="field in config.fields" :key="field.key"><dt>{{ field.label }}</dt><dd>{{ displayValue(field.key, (current as unknown as Record<string, unknown>)[field.key]) }}</dd></template></dl>
 
+        <section v-if="['leads', 'deals'].includes(props.entityType)" class="crud-tool scoring-card">
+          <div class="scoring-heading">
+            <div><h3>{{ props.entityType === 'leads' ? 'Lead score' : 'Opportunity score' }}</h3><p>Объяснимая оценка · {{ scoringRecord()?.score_model_version ?? 'ещё не рассчитана' }}</p></div>
+            <strong>{{ currentScore() ?? '—' }}<small v-if="currentScore() !== null">/100</small></strong>
+          </div>
+          <p v-if="currentScore() !== null" class="score-grade">{{ scoreGradeLabel() }}</p>
+          <div v-if="scoreFactors().length" class="score-factor-list">
+            <div v-for="factor in scoreFactors()" :key="factor.key">
+              <span><strong>{{ factor.label }}</strong><small>{{ factor.signal }}</small></span>
+              <b>+{{ factor.points }}/{{ factor.max_points }}</b>
+            </div>
+          </div>
+          <p v-else>Факторы появятся после первого расчёта.</p>
+          <p v-if="forecastProbability() !== null">Вероятность для прогноза: <strong>{{ forecastProbability() }}%</strong></p>
+          <button v-if="canWriteRecord" class="secondary" type="button" :disabled="busy" @click="recalculateCurrentScore">Пересчитать</button>
+        </section>
+
         <section v-if="canWriteRecord && lifecycleStore.canReassign.value && config.reassign" class="crud-tool"><h3>Ответственный</h3><select v-model="ownerId"><option value="">Выберите участника</option><option v-for="member in lifecycleStore.knownOwners.value" :key="member.user_id" :value="member.user_id">{{ member.full_name }}</option></select><input v-model="ownerId" placeholder="или UUID участника" /><button type="button" @click="reassign">Назначить</button></section>
 
         <section v-if="props.entityType === 'leads' && canWriteRecord && !current.deleted_at" class="crud-tool"><h3>Lifecycle лида</h3><p>Статус: <strong>{{ (current as Lead).status }}</strong></p><template v-if="(current as Lead).status !== 'converted'"><button type="button" @click="qualify(true)">Квалифицировать</button><input v-model="disqualificationReason" placeholder="Причина отказа" /><button class="secondary" type="button" @click="qualify(false)">Дисквалифицировать</button></template><div v-if="(current as Lead).status === 'qualified'" class="crud-convert"><select v-model="conversion.stage_id"><option value="">Этап сделки</option><option v-for="stage in crmStore.allStages.value" :key="stage.id" :value="stage.id">{{ stage.name }}</option></select><input v-model="conversion.title" placeholder="Название сделки" /><input v-model="conversion.amount" type="number" min="0" placeholder="Сумма" /><button type="button" @click="convert">Конвертировать</button></div><RouterLink v-if="(current as Lead).converted_deal_id" class="secondary-link" :to="`/deals?deal=${(current as Lead).converted_deal_id}`">Открыть сделку</RouterLink></section>
@@ -350,5 +414,5 @@ function recordOwner(record: LifecycleRecord) {
 </template>
 
 <style scoped>
-.entity-crud-backdrop{position:fixed;inset:0;z-index:120;background:rgb(15 23 42/35%);backdrop-filter:blur(2px)}.entity-crud-drawer{position:absolute;top:0;right:0;width:min(590px,100%);height:100%;overflow-y:auto;padding:24px;background:var(--color-surface);box-shadow:-20px 0 55px rgb(15 23 42/20%)}.entity-crud-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.entity-crud-head h2{margin:3px 0 0;font-size:24px;overflow-wrap:anywhere}.crud-close{width:38px;padding:0;font-size:23px}.entity-crud-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px;margin-top:22px}.entity-crud-form label{margin:0}.entity-crud-form label:has(textarea),.entity-crud-form .crud-buttons{grid-column:1/-1}.crud-buttons{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0}.crud-danger{color:var(--color-danger-text);border-color:var(--color-danger);background:var(--color-danger-soft)}.crud-status{display:flex;gap:10px;margin:18px 0;color:var(--muted);font-size:13px}.crud-status span:first-child{border-radius:99px;padding:5px 8px;color:var(--color-success-text);background:var(--color-success-soft);font-weight:700}.crud-fields{display:grid;grid-template-columns:150px minmax(0,1fr);margin:0}.crud-fields dt,.crud-fields dd{margin:0;border-bottom:1px solid var(--line-soft);padding:10px 0;overflow-wrap:anywhere}.crud-fields dt{color:var(--muted)}.crud-tool{display:grid;gap:9px;margin-top:18px;border-top:1px solid var(--line-soft);padding-top:18px}.crud-tool h3,.crud-tool p{margin:0}.crud-tool p{color:var(--muted);font-size:13px}.crud-convert{display:grid;gap:8px}.crud-check{display:flex;align-items:center;gap:8px;margin:0}.duplicate-heading,.duplicate-candidate,.duplicate-actions{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.duplicate-candidate{border:1px solid var(--color-border);border-radius:var(--radius-control);padding:10px}.duplicate-candidate>div:first-child{display:grid;gap:3px;min-width:0}.duplicate-candidate small{color:var(--color-text-muted);overflow-wrap:anywhere}.duplicate-actions{flex-shrink:0}.crud-history ol{display:grid;gap:8px;margin:0;padding:0;list-style:none}.crud-history li{display:grid;gap:3px;border:1px solid var(--line);border-radius:8px;padding:10px}.crud-history small{color:var(--muted)}.crud-conflict{position:absolute;top:50%;left:50%;z-index:2;width:min(420px,calc(100% - 32px));border-radius:14px;padding:24px;background:var(--color-surface);box-shadow:0 22px 60px rgb(15 23 42/25%);transform:translate(-50%,-50%)}.crud-conflict h2{margin-top:0}.crud-conflict button{margin:4px}@media(max-width:620px){.entity-crud-backdrop{height:100dvh}.entity-crud-drawer{width:100dvw;height:100dvh;padding:calc(18px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom));box-shadow:none}.entity-crud-form{grid-template-columns:1fr}.crud-fields{grid-template-columns:110px minmax(0,1fr)}.crud-buttons{position:sticky;bottom:0;z-index:2;margin-inline:-16px;padding:10px 16px calc(10px + env(safe-area-inset-bottom));background:var(--color-surface)}.crud-buttons button{min-height:44px;flex:1}.duplicate-heading,.duplicate-candidate{align-items:stretch;flex-direction:column}.duplicate-actions button{flex:1}}
+.entity-crud-backdrop{position:fixed;inset:0;z-index:120;background:rgb(15 23 42/35%);backdrop-filter:blur(2px)}.entity-crud-drawer{position:absolute;top:0;right:0;width:min(590px,100%);height:100%;overflow-y:auto;padding:24px;background:var(--color-surface);box-shadow:-20px 0 55px rgb(15 23 42/20%)}.entity-crud-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.entity-crud-head h2{margin:3px 0 0;font-size:24px;overflow-wrap:anywhere}.crud-close{width:38px;padding:0;font-size:23px}.entity-crud-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px;margin-top:22px}.entity-crud-form label{margin:0}.entity-crud-form label:has(textarea),.entity-crud-form .crud-buttons{grid-column:1/-1}.crud-buttons{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0}.crud-danger{color:var(--color-danger-text);border-color:var(--color-danger);background:var(--color-danger-soft)}.crud-status{display:flex;gap:10px;margin:18px 0;color:var(--muted);font-size:13px}.crud-status span:first-child{border-radius:99px;padding:5px 8px;color:var(--color-success-text);background:var(--color-success-soft);font-weight:700}.crud-fields{display:grid;grid-template-columns:150px minmax(0,1fr);margin:0}.crud-fields dt,.crud-fields dd{margin:0;border-bottom:1px solid var(--line-soft);padding:10px 0;overflow-wrap:anywhere}.crud-fields dt{color:var(--muted)}.crud-tool{display:grid;gap:9px;margin-top:18px;border-top:1px solid var(--line-soft);padding-top:18px}.crud-tool h3,.crud-tool p{margin:0}.crud-tool p{color:var(--muted);font-size:13px}.crud-convert{display:grid;gap:8px}.crud-check{display:flex;align-items:center;gap:8px;margin:0}.duplicate-heading,.duplicate-candidate,.duplicate-actions{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.duplicate-candidate{border:1px solid var(--color-border);border-radius:var(--radius-control);padding:10px}.duplicate-candidate>div:first-child{display:grid;gap:3px;min-width:0}.duplicate-candidate small{color:var(--color-text-muted);overflow-wrap:anywhere}.duplicate-actions{flex-shrink:0}.crud-history ol{display:grid;gap:8px;margin:0;padding:0;list-style:none}.crud-history li{display:grid;gap:3px;border:1px solid var(--line);border-radius:8px;padding:10px}.crud-history small{color:var(--muted)}.crud-conflict{position:absolute;top:50%;left:50%;z-index:2;width:min(420px,calc(100% - 32px));border-radius:14px;padding:24px;background:var(--color-surface);box-shadow:0 22px 60px rgb(15 23 42/25%);transform:translate(-50%,-50%)}.crud-conflict h2{margin-top:0}.crud-conflict button{margin:4px}.scoring-card{border:1px solid var(--color-border);border-radius:var(--radius-card);padding:14px;background:var(--color-ai-soft)}.scoring-heading,.score-factor-list>div{display:flex;align-items:center;justify-content:space-between;gap:12px}.scoring-heading>div{display:grid;gap:3px}.scoring-heading>strong{font-size:30px}.scoring-heading>strong small{font-size:13px}.score-grade{color:var(--color-text-primary)!important;font-weight:700}.score-factor-list{display:grid;gap:7px}.score-factor-list>div{border-top:1px solid var(--color-border-subtle);padding-top:7px}.score-factor-list span{display:grid;gap:2px}.score-factor-list small{color:var(--color-text-muted)}.score-factor-list b{white-space:nowrap}@media(max-width:620px){.entity-crud-backdrop{height:100dvh}.entity-crud-drawer{width:100dvw;height:100dvh;padding:calc(18px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom));box-shadow:none}.entity-crud-form{grid-template-columns:1fr}.crud-fields{grid-template-columns:110px minmax(0,1fr)}.crud-buttons{position:sticky;bottom:0;z-index:2;margin-inline:-16px;padding:10px 16px calc(10px + env(safe-area-inset-bottom));background:var(--color-surface)}.crud-buttons button{min-height:44px;flex:1}.duplicate-heading,.duplicate-candidate{align-items:stretch;flex-direction:column}.duplicate-actions button{flex:1}}
 </style>
