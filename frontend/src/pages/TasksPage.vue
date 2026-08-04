@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router";
 
 import EntityCrudDrawer from "../components/crm/EntityCrudDrawer.vue";
+import CustomFieldFilter from "../components/crm/CustomFieldFilter.vue";
 import UiIcon from "../components/ui/UiIcon.vue";
 import type { IconName } from "../components/ui/icons";
 import { useDensity } from "../design-system/density";
@@ -21,6 +22,7 @@ const isTaskCrudOpen = ref(false);
 const statusFilter = ref<StatusFilter>("all");
 const priorityFilter = ref("all");
 const searchQuery = ref("");
+const customFieldIds = ref<string[] | null>(null);
 const { density, setDensity } = useDensity();
 const viewMode = computed<"list" | "compact">({
   get: () => density.value === "compact" ? "compact" : "list",
@@ -141,6 +143,7 @@ const stats = computed<Array<{ code: string; icon: IconName; label: string; valu
 const filteredTasks = computed(() => {
   const needle = searchQuery.value.trim().toLowerCase();
   return allTasks.value.filter((task) => {
+    if (customFieldIds.value && !customFieldIds.value.includes(task.id)) return false;
     if (statusFilter.value === "open" && isCompleted(task)) return false;
     if (statusFilter.value === "overdue" && !isOverdue(task)) return false;
     if (statusFilter.value === "completed" && !isCompleted(task)) return false;
@@ -251,6 +254,7 @@ function refreshActivities() {
         <UiIcon name="search" :size="16" />
         <input v-model="searchQuery" type="search" placeholder="Поиск задач..." aria-label="Поиск задач" />
       </label>
+      <CustomFieldFilter entity-type="tasks" @change="customFieldIds = $event" />
       <select v-model="priorityFilter" class="tasks-select" aria-label="Приоритет">
         <option value="all">Любой приоритет</option>
         <option value="high">Высокий</option>

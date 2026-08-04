@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import EntityCrudDrawer from "../components/crm/EntityCrudDrawer.vue";
+import CustomFieldFilter from "../components/crm/CustomFieldFilter.vue";
 import UiBadge from "../components/ui/UiBadge.vue";
 import UiButton from "../components/ui/UiButton.vue";
 import UiEmptyState from "../components/ui/UiEmptyState.vue";
@@ -21,6 +22,7 @@ const loading = ref(true);
 const query = ref("");
 const statusFilter = ref("");
 const activeList = ref<"leads" | "contacts">("leads");
+const customFieldIds = ref<string[] | null>(null);
 
 const crudType = ref<EntityType | null>(null);
 const crudRecord = ref<Contact | Lead | Note | null>(null);
@@ -28,12 +30,13 @@ const crudMode = ref<"view" | "edit" | "create">("view");
 const crudInitialValues = ref<Record<string, unknown>>({});
 const filteredLeads = computed(() => crmStore.leads.value.filter((lead) => {
   const needle = query.value.trim().toLowerCase();
-  return (!statusFilter.value || lead.status === statusFilter.value)
+  return (!customFieldIds.value || customFieldIds.value.includes(lead.id))
+    && (!statusFilter.value || lead.status === statusFilter.value)
     && (!needle || [lead.title, lead.source, companyName(lead.company_id)].some((value) => String(value ?? "").toLowerCase().includes(needle)));
 }));
 const filteredContacts = computed(() => crmStore.contacts.value.filter((contact) => {
   const needle = query.value.trim().toLowerCase();
-  return !needle || [contact.name, contact.email, contact.phone, contact.company_name].some((value) => String(value ?? "").toLowerCase().includes(needle));
+  return (!customFieldIds.value || customFieldIds.value.includes(contact.id)) && (!needle || [contact.name, contact.email, contact.phone, contact.company_name].some((value) => String(value ?? "").toLowerCase().includes(needle)));
 }));
 const leadStatuses = computed(() => [...new Set(crmStore.leads.value.map((lead) => lead.status))]);
 const convertedCount = computed(() => crmStore.leads.value.filter((lead) => ["converted", "qualified"].includes(lead.status)).length);
@@ -117,7 +120,8 @@ function scoreLabel(lead: Lead) {
       </header>
 
       <UiSkeletonGroup v-if="loading" :rows="3" avatar />
-      <template v-else-if="activeList === 'leads'">
+      <CustomFieldFilter :key="activeList" :entity-type="activeList" @change="customFieldIds = $event" />
+      <template v-if="activeList === 'leads'">
         <button v-for="lead in filteredLeads" :key="lead.id" class="lead-row" type="button" @click="openCrud('leads', lead)">
           <span class="lead-avatar">{{ lead.title.slice(0, 2).toUpperCase() }}</span>
           <span class="lead-main"><strong>{{ lead.title }}</strong><small>{{ companyName(lead.company_id) }} · {{ lead.source ?? "Источник не указан" }}</small></span>

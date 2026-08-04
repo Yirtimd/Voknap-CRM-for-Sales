@@ -31,6 +31,7 @@ class Permission(StrEnum):
     MEMBERS_MANAGE = "members:manage"
     AUTOMATIONS_MANAGE = "automations:manage"
     APPROVALS_MANAGE = "approvals:manage"
+    CUSTOM_FIELDS_MANAGE = "custom_fields:manage"
 
 
 ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
@@ -52,6 +53,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.MEMBERS_MANAGE,
             Permission.AUTOMATIONS_MANAGE,
             Permission.APPROVALS_MANAGE,
+            Permission.CUSTOM_FIELDS_MANAGE,
         }
     ),
     Role.SALES_MANAGER: frozenset(

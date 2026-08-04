@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import CompanyDrawer from "../components/crm/CompanyDrawer.vue";
+import CustomFieldFilter from "../components/crm/CustomFieldFilter.vue";
 import UiIcon from "../components/ui/UiIcon.vue";
 import { crmStore } from "../stores/crm";
 import type { Company } from "../types";
@@ -12,6 +13,7 @@ const sort = ref<"health" | "name" | "pipeline">("health");
 const selectedCompany = ref<Company | null>(null);
 const showCreateCompany = ref(false);
 const companyNameInput = ref<HTMLInputElement | null>(null);
+const customFieldIds = ref<string[] | null>(null);
 const route = useRoute();
 const router = useRouter();
 
@@ -113,6 +115,7 @@ async function openCompany(company: Company) {
 const filteredCompanies = computed(() => {
   const needle = query.value.trim().toLowerCase();
   const rows = crmStore.companies.value.filter((company) => {
+    if (customFieldIds.value && !customFieldIds.value.includes(company.id)) return false;
     if (!needle) return true;
     return [company.name, company.industry, company.website].some((value) => String(value ?? "").toLowerCase().includes(needle));
   });
@@ -162,6 +165,7 @@ const averageHealth = computed(() => {
       </label>
       <button type="button" class="new-company-button" @click="openCreateCompany"><UiIcon name="plus" :size="16" /> Новая компания</button>
     </section>
+    <CustomFieldFilter entity-type="companies" @change="customFieldIds = $event" />
 
     <section class="companies-metrics">
       <article class="company-metric-card">

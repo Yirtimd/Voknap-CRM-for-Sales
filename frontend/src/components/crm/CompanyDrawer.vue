@@ -7,6 +7,7 @@ import type { IconName } from "../ui/icons";
 import { statusLabel } from "../../design-system/statusDictionary";
 import EntityCrudDrawer from "./EntityCrudDrawer.vue";
 import CadencePanel from "./CadencePanel.vue";
+import CustomFieldsForm from "./CustomFieldsForm.vue";
 import type { Activity, CommunicationEvent, Company, Contact, NextAction, Note, Task } from "../../types";
 import { crmStore } from "../../stores/crm";
 import { formatStageName } from "../../utils/stages";
@@ -815,6 +816,7 @@ function saveNextAction() {
       </nav>
 
       <main v-if="activeTab === 'overview'" class="company-overview">
+        <CustomFieldsForm v-if="company" entity-type="companies" :entity-id="company.id" :editable="crmStore.me.value?.permissions.includes('crm:write')" />
         <section class="company-overview-grid">
         <section class="cm-card company-about">
           <div class="cm-card__header"><h2 class="cm-card__title">О компании</h2></div>

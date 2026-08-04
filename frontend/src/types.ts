@@ -22,9 +22,47 @@ export type Permission =
   | "data:export"
   | "members:manage"
   | "automations:manage"
-  | "approvals:manage";
+  | "approvals:manage"
+  | "custom_fields:manage";
 
 export type EntityType = "contacts" | "leads" | "deals" | "tasks" | "notes";
+export type CustomFieldEntityType = "companies" | "contacts" | "leads" | "deals" | "tasks";
+export type CustomFieldType = "text" | "number" | "date" | "datetime" | "boolean" | "select" | "multi_select";
+export type CustomFieldOperator = "eq" | "neq" | "contains" | "gt" | "gte" | "lt" | "lte" | "is_empty";
+
+export type CustomFieldDefinition = {
+  id: string;
+  entity_type: CustomFieldEntityType;
+  code: string;
+  label: string;
+  description: string | null;
+  field_type: CustomFieldType;
+  options: string[];
+  is_required: boolean;
+  is_filterable: boolean;
+  is_reportable: boolean;
+  is_active: boolean;
+  sort_order: number;
+  version: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CustomFieldValue = {
+  field: CustomFieldDefinition;
+  value: unknown;
+  version: number;
+  updated_at: string | null;
+};
+
+export type CustomFieldReport = {
+  entity_type: CustomFieldEntityType;
+  group_field: CustomFieldDefinition;
+  metric: "count" | "sum" | "avg";
+  measure: string | null;
+  buckets: Array<{ label: string; value: number; count: number }>;
+  generated_at: string;
+};
 
 export type EntityVersion = {
   id: string;

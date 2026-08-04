@@ -149,6 +149,24 @@ def test_queue_rejects_cross_tenant_team(postgres_connection):
         )
 
 
+def test_custom_field_tables_are_forced_rls(postgres_connection):
+    connection, tenant_a, _tenant_b, _company_a, _company_b = postgres_connection
+    connection.exec_driver_sql(f'SET LOCAL ROLE "{settings.database_runtime_role}"')
+    assert connection.execute(text("SELECT count(*) FROM custom_field_definitions")).scalar_one() == 0
+    assert connection.execute(text("SELECT count(*) FROM custom_field_values")).scalar_one() == 0
+    connection.execute(
+        text("SELECT set_config('app.tenant_id', :tenant_id, true)"),
+        {"tenant_id": str(tenant_a)},
+    )
+    policies = connection.execute(
+        text(
+            "SELECT count(*) FROM pg_policies WHERE schemaname = current_schema() "
+            "AND tablename IN ('custom_field_definitions', 'custom_field_values')"
+        )
+    ).scalar_one()
+    assert policies == 2
+
+
 def test_automation_tables_are_forced_rls_and_default_deny(postgres_connection):
     connection, tenant_a, tenant_b, _company_a, _company_b = postgres_connection
     user_a, user_b = uuid4(), uuid4()

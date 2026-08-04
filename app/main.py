@@ -6,6 +6,7 @@ from app.modules.ai_agent import models as ai_agent_models  # noqa: F401
 from app.modules.automation import models as automation_models  # noqa: F401
 from app.modules.communication import models as communication_models  # noqa: F401
 from app.modules.connectors import models as connectors_models  # noqa: F401
+from app.modules.custom_fields import models as custom_field_models  # noqa: F401
 from app.modules.knowledge import models as knowledge_models  # noqa: F401
 from app.modules.notifications import models as notification_models  # noqa: F401
 from app.modules.production import models as production_models  # noqa: F401
@@ -22,6 +23,7 @@ from app.modules.auth.router import router as auth_router
 from app.modules.communication.router import router as communication_router
 from app.modules.connectors.router import router as connectors_router
 from app.modules.connectors.public_router import router as public_api_router
+from app.modules.custom_fields.router import router as custom_fields_router
 from app.modules.health.router import router as health_router
 from app.modules.knowledge.router import router as knowledge_router
 from app.modules.notifications.router import router as notifications_router
@@ -73,5 +75,6 @@ app.include_router(automation_router, prefix="/automations", tags=["automations"
 app.include_router(communication_router, prefix="/communication", tags=["communication"])
 app.include_router(connectors_router, prefix="/connectors", tags=["connectors"])
 app.include_router(public_api_router, prefix="/public/v1", tags=["public-api"])
+app.include_router(custom_fields_router, prefix="/custom-fields", tags=["custom-fields"])
 app.include_router(templates_router, prefix="/templates", tags=["templates"])
 app.include_router(production_router, prefix="/production", tags=["production"])

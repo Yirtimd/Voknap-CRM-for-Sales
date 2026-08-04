@@ -11,6 +11,7 @@ from app.modules.ai_agent import models as ai_agent_models  # noqa: F401
 from app.modules.automation import models as automation_models  # noqa: F401
 from app.modules.communication import models as communication_models  # noqa: F401
 from app.modules.connectors import models as connectors_models  # noqa: F401
+from app.modules.custom_fields import models as custom_field_models  # noqa: F401
 from app.modules.knowledge import models as knowledge_models  # noqa: F401
 from app.modules.notifications import models as notification_models  # noqa: F401
 from app.modules.production import models as production_models  # noqa: F401

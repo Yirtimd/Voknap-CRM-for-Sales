@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import EntityCrudDrawer from "../components/crm/EntityCrudDrawer.vue";
+import CustomFieldFilter from "../components/crm/CustomFieldFilter.vue";
 import UiIcon from "../components/ui/UiIcon.vue";
 import type { Deal, Note } from "../types";
 import { crmStore } from "../stores/crm";
@@ -17,6 +18,7 @@ const isNoteCrudOpen = ref(false);
 const noteCrudRecord = ref<Note | null>(null);
 const showCreateDeal = ref(false);
 const search = ref("");
+const customFieldIds = ref<string[] | null>(null);
 const filters = ref({ stage: "", owner: "", company: "", minAmount: 0, risk: "", minScore: 0 });
 const viewSaved = ref(false);
 const showMoreMenu = ref(false);
@@ -37,6 +39,7 @@ const modes = [
 const visibleDeals = computed(() => {
   const query = search.value.trim().toLowerCase();
   return crmStore.deals.value.filter((deal) =>
+    (!customFieldIds.value || customFieldIds.value.includes(deal.id)) &&
     (!query || [deal.title, companyName(deal.company_id), deal.next_step, deal.expected_next_event]
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(query))) &&
@@ -429,6 +432,7 @@ watch(
       </div>
       <button class="secondary save-view-button" type="button" @click="saveView">{{ viewSaved ? "Сохранено" : "Сохранить вид" }}</button>
     </section>
+    <CustomFieldFilter entity-type="deals" @change="customFieldIds = $event" />
 
     <div class="deals-view-row">
       <div class="mode-tabs">

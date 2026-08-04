@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 
 import UiIcon from "../ui/UiIcon.vue";
+import CustomFieldsForm from "./CustomFieldsForm.vue";
 import { ENTITY_CONFIG, type LifecycleField } from "../../lifecycleConfig";
 import { crmStore } from "../../stores/crm";
 import { lifecycleStore, type LifecycleRecord } from "../../stores/lifecycle";
@@ -373,6 +374,7 @@ async function recalculateCurrentScore() {
           <button v-if="canWriteRecord && current.deleted_at" type="button" @click="restoreRecord">Восстановить</button>
         </div>
         <dl class="crud-fields"><template v-for="field in config.fields" :key="field.key"><dt>{{ field.label }}</dt><dd>{{ displayValue(field.key, (current as unknown as Record<string, unknown>)[field.key]) }}</dd></template></dl>
+        <CustomFieldsForm v-if="props.entityType !== 'notes'" :entity-type="props.entityType" :entity-id="current.id" :editable="canWriteRecord && !current.deleted_at" />
 
         <section v-if="['leads', 'deals'].includes(props.entityType)" class="crud-tool scoring-card">
           <div class="scoring-heading">

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
 import UiIcon from "../components/ui/UiIcon.vue";
+import CustomFieldReportPanel from "../components/crm/CustomFieldReportPanel.vue";
 import { crmStore } from "../stores/crm";
 import { formatStageName, isTerminalStage } from "../utils/stages";
 
@@ -464,6 +465,8 @@ onBeforeUnmount(() => window.removeEventListener("keydown", handleEscape));
       </div>
       <RouterLink class="button-link" :to="nextBestDeal ? '/deals' : '/companies'">Открыть сделку →</RouterLink>
     </section>
+
+    <CustomFieldReportPanel />
 
     <div v-if="detail" class="analytics-modal-backdrop" @click.self="closePanel">
       <section class="analytics-modal" role="dialog" aria-modal="true" :aria-label="detail.title">
