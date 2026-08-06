@@ -5,7 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field, model_validator
 
 from app.core.rbac import Role
-from app.modules.auth.schemas import validate_bcrypt_password
+from app.modules.auth.schemas import validate_new_password
 
 
 class MembershipRoleUpdate(BaseModel):
@@ -66,11 +66,11 @@ class InvitationResponse(BaseModel):
 class InvitationAccept(BaseModel):
     token: str = Field(min_length=32, max_length=255)
     full_name: str | None = Field(default=None, min_length=2, max_length=255)
-    password: str = Field(min_length=8, max_length=72)
+    password: str = Field(min_length=12, max_length=72)
 
     @model_validator(mode="after")
     def validate_password(self) -> "InvitationAccept":
-        validate_bcrypt_password(self.password)
+        validate_new_password(self.password)
         return self
 
 

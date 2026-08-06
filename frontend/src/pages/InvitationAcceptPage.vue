@@ -23,8 +23,8 @@ async function accept() {
     });
     crmStore.token.value = result.access_token;
     crmStore.tenantId.value = result.tenant_id;
-    localStorage.setItem("cmr_token", result.access_token);
     localStorage.setItem("cmr_tenant_id", result.tenant_id);
+    await crmStore.refreshSession();
     await crmStore.refreshMe();
     done.value = true;
   } catch {
@@ -43,7 +43,7 @@ async function accept() {
         <form @submit.prevent="accept">
           <label>Токен приглашения<input v-model="form.token" required minlength="32" autocomplete="off" /></label>
           <label>Имя нового пользователя<input v-model="form.full_name" minlength="2" autocomplete="name" /></label>
-          <label>Пароль<input v-model="form.password" type="password" required minlength="8" maxlength="72" autocomplete="current-password" /></label>
+          <label>Пароль<input v-model="form.password" type="password" required minlength="12" maxlength="72" autocomplete="current-password" /></label>
           <button type="submit" :disabled="teamStore.loading.value">Принять приглашение</button>
         </form>
         <p v-if="teamStore.error.value" class="alert error">{{ teamStore.error.value }}</p>

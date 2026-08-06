@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException, status
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db, set_tenant_context
 from app.core.rbac import Role, deny_access
 from app.core.security import decode_access_token
-from app.modules.accounts.models import Membership, User
+from app.modules.accounts.models import Membership, User, UserSession
 
 
 bearer = HTTPBearer(auto_error=False)
@@ -28,15 +29,40 @@ def get_current_user(
     if credentials is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
-    user_id = decode_access_token(credentials.credentials)
-    if user_id is None:
+    claims = decode_access_token(credentials.credentials)
+    if claims is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
-    user = db.get(User, user_id)
+    if claims.session_id is not None:
+        session = db.get(UserSession, claims.session_id)
+        if (
+            session is None
+            or session.user_id != claims.user_id
+            or session.revoked_at is not None
+            or _as_utc(session.expires_at) <= datetime.now(timezone.utc)
+        ):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
+
+    user = db.get(User, claims.user_id)
     if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
     return user
+
+
+def get_current_session_id(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> UUID:
+    if credentials is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    claims = decode_access_token(credentials.credentials)
+    if claims is None or claims.session_id is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session required")
+    return claims.session_id
+
+
+def _as_utc(value):
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
 def get_current_tenant(

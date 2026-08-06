@@ -6,6 +6,12 @@ import type { Pagination } from "./types";
  * VITE_API_URL; otherwise the current origin is used.
  */
 const API_URL = (import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? "/api" : "")).replace(/\/$/, "");
+let refreshHandler: (() => Promise<string | null>) | null = null;
+let refreshInFlight: Promise<string | null> | null = null;
+
+export function setAuthRefreshHandler(handler: (() => Promise<string | null>) | null): void {
+  refreshHandler = handler;
+}
 
 export type QueryValue = string | number | boolean | null | undefined;
 export type QueryParams = Record<string, QueryValue | QueryValue[]>;
@@ -105,11 +111,13 @@ async function request(
   path: string,
   options: RequestInit = {},
   token?: string,
-  tenantId?: string
+  tenantId?: string,
+  allowRefresh = true
 ): Promise<Response> {
   const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
   const response = await fetch(apiUrl(path), {
     ...options,
+    credentials: "include",
     headers: {
       ...(!isFormData ? { "Content-Type": "application/json" } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -117,6 +125,12 @@ async function request(
       ...options.headers
     }
   });
+
+  if (allowRefresh && response.status === 401 && token && refreshHandler && !path.startsWith("/auth/")) {
+    refreshInFlight ??= refreshHandler().finally(() => { refreshInFlight = null; });
+    const refreshedToken = await refreshInFlight;
+    if (refreshedToken) return request(path, options, refreshedToken, tenantId, false);
+  }
 
   if (!response.ok) {
     throw await toApiError(response);

@@ -36,6 +36,8 @@ permissions, integrations, terminology, and industry requirements.
 - contact sequences/cadences with scheduled task, call, manual-email, and
   connector-backed automatic-email steps;
 - tenant-safe PostgreSQL data model with database-enforced isolation;
+- short-lived access tokens, rotating refresh sessions, password recovery,
+  login rate limits, TOTP MFA, and one-time recovery codes;
 - document upload, OCR, S3-compatible storage, and scoped RAG;
 - AI copilot with grounded context and confirmation before CRM mutations;
 - pipeline analytics, forecasting, deal risk, and manager-level signals;
@@ -125,7 +127,7 @@ new tenant tables are protected by forced RLS.
 | Backend | Python 3.12, FastAPI, SQLAlchemy, Alembic |
 | Database | PostgreSQL, pgvector |
 | Frontend | Vue 3, TypeScript, Vue Router, Vite |
-| Authentication | JWT bearer authentication |
+| Authentication | Short-lived JWT, rotating refresh sessions, TOTP MFA |
 | Files | S3-compatible storage, MinIO for local development |
 | Documents | PDF, DOCX, TXT, OCR through Tesseract |
 | AI | OpenAI-compatible LLM and embedding providers |
@@ -215,6 +217,12 @@ make integrations-run
 DATABASE_URL
 DATABASE_RUNTIME_ROLE
 SECRET_KEY
+APP_ENVIRONMENT
+REFRESH_TOKEN_EXPIRE_DAYS
+AUTH_COOKIE_SECURE
+AUTH_EXPOSE_RESET_TOKEN
+AUTH_SMTP_HOST
+AUTH_SMTP_FROM_EMAIL
 LLM_API_KEY
 LLM_BASE_URL
 LLM_MODEL
@@ -242,7 +250,7 @@ The complete development template is available in `.env.example`.
 ## Implemented
 
 - modular CRM backend and Vue workspace;
-- PostgreSQL migrations through `0017_real_integrations`;
+- PostgreSQL migrations through `0024_pilot_authentication`;
 - native pgvector storage and scoped retrieval;
 - company workspace and activity timeline;
 - analytics and AI-assisted recommendations;
@@ -256,6 +264,8 @@ The complete development template is available in `.env.example`.
 - MinIO/S3 file storage and OCR;
 - forced tenant RLS and tenant-aware constraints;
 - centralized RBAC with object- and field-level write protection;
+- account security with HttpOnly refresh cookies, session revocation, password
+  reset/change, rate limiting, TOTP MFA, and recovery codes;
 - secure invitations, membership deactivation, teams, manager hierarchies,
   lead queues, assignment rules, and account territories;
 - workflow automation with idempotent runs, approval decisions, scheduled
@@ -274,7 +284,6 @@ The complete development template is available in `.env.example`.
 
 ## Planned product capabilities
 
-- custom fields and customer-specific process configuration;
 - products, price books, quotes, and contract workflows;
 - configurable reports, dashboards, quotas, and advanced forecasting;
 - production deployment, backup, recovery, and compliance profiles.

@@ -105,7 +105,7 @@ def test_invitation_is_one_time_and_creates_active_membership(team_api):
         json={
             "token": invitation.json()["token"],
             "full_name": "New Rep",
-            "password": "password123",
+            "password": "Invitation-Password-2026!",
         },
     )
     repeated = team_api["client"].post(
@@ -113,7 +113,7 @@ def test_invitation_is_one_time_and_creates_active_membership(team_api):
         json={
             "token": invitation.json()["token"],
             "full_name": "New Rep",
-            "password": "password123",
+            "password": "Invitation-Password-2026!",
         },
     )
 

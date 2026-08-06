@@ -154,7 +154,7 @@ describe("team store", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await teamStore.acceptInvitation({ token: "tenant.long-one-time-token", full_name: "New User", password: "password123" });
+    const result = await teamStore.acceptInvitation({ token: "tenant.long-one-time-token", full_name: "New User", password: "Invitation-Password-2026!" });
 
     expect(result.tenant_id).toBe("tenant-2");
     expect(fetchMock.mock.calls[0][0]).toBe("/api/auth/invitations/accept");

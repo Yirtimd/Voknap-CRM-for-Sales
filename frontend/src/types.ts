@@ -227,10 +227,28 @@ export type InvitationAcceptResponse = {
 };
 
 export type AuthResponse = {
-  access_token: string;
+  status: "authenticated" | "mfa_required";
+  access_token: string | null;
   token_type: string;
-  user_id: string;
+  user_id: string | null;
   tenants: Tenant[];
+  mfa_token: string | null;
+};
+
+export type AuthSession = {
+  id: string;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+  last_used_at: string;
+  expires_at: string;
+  current: boolean;
+};
+
+export type MfaStatus = {
+  enabled: boolean;
+  enabled_at: string | null;
+  recovery_codes_remaining: number;
 };
 
 export type Contact = {

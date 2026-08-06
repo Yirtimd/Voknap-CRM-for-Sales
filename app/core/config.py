@@ -3,10 +3,24 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "CRM Sales App"
+    app_environment: str = "development"
     database_url: str = "postgresql+psycopg://cmr:cmr@localhost:5432/cmr"
     database_runtime_role: str = "cmr_app"
     secret_key: str = "change-me-in-production"
-    access_token_expire_minutes: int = 1440
+    access_token_expire_minutes: int = 15
+    refresh_token_expire_days: int = 30
+    auth_cookie_secure: bool = False
+    auth_expose_reset_token: bool = True
+    auth_reset_token_expire_minutes: int = 30
+    auth_mfa_challenge_expire_minutes: int = 5
+    auth_rate_limit_window_minutes: int = 15
+    auth_rate_limit_max_attempts: int = 5
+    auth_smtp_host: str | None = None
+    auth_smtp_port: int = 587
+    auth_smtp_username: str | None = None
+    auth_smtp_password: str | None = None
+    auth_smtp_from_email: str | None = None
+    auth_smtp_use_tls: bool = True
     dev_user_password: str | None = None
     openai_api_key: str | None = None
     llm_api_key: str | None = None
@@ -54,3 +68,17 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def validate_security_settings() -> None:
+    if settings.app_environment != "production":
+        return
+    errors: list[str] = []
+    if settings.secret_key == "change-me-in-production" or len(settings.secret_key) < 32:
+        errors.append("SECRET_KEY must be unique and at least 32 characters")
+    if settings.auth_expose_reset_token:
+        errors.append("AUTH_EXPOSE_RESET_TOKEN must be false")
+    if not settings.auth_smtp_host or not settings.auth_smtp_from_email:
+        errors.append("AUTH_SMTP_HOST and AUTH_SMTP_FROM_EMAIL are required")
+    if errors:
+        raise RuntimeError("Unsafe production authentication configuration: " + "; ".join(errors))

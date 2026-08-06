@@ -10,13 +10,14 @@ import { crmStore } from "../stores/crm";
 import IntegrationsSettings from "../components/settings/IntegrationsSettings.vue";
 import PipelineSettings from "../components/settings/PipelineSettings.vue";
 import CustomFieldsSettings from "../components/settings/CustomFieldsSettings.vue";
+import SecuritySettings from "../components/settings/SecuritySettings.vue";
 
-type SettingsSection = "workspace" | "sales" | "fields" | "integrations" | "templates" | "admin" | "components";
+type SettingsSection = "workspace" | "security" | "sales" | "fields" | "integrations" | "templates" | "admin" | "components";
 const route = useRoute();
 const activeSection = ref<SettingsSection>("workspace");
 const loading = ref(true);
 const canAdmin = computed(() => ["owner", "admin"].includes(crmStore.me.value?.role ?? ""));
-const settingsSections: SettingsSection[] = ["workspace", "sales", "fields", "integrations", "templates", "admin", "components"];
+const settingsSections: SettingsSection[] = ["workspace", "security", "sales", "fields", "integrations", "templates", "admin", "components"];
 
 watch(
   () => route.query.section,
@@ -56,7 +57,7 @@ onMounted(async () => {
   <section class="settings-page">
     <header class="settings-hero"><div><p class="eyebrow">Рабочее пространство</p><h2>Настройки</h2><p>Управление компанией, интеграциями, шаблонами и доступными возможностями.</p></div><UiButton variant="secondary" icon="refresh" :loading="loading" @click="refreshSettings">Обновить</UiButton></header>
     <nav class="settings-nav" aria-label="Разделы настроек">
-      <button v-for="item in [{id:'workspace',label:'Компания',icon:'companies'},{id:'sales',label:'Продажи',icon:'deals'},{id:'fields',label:'Поля',icon:'grid'},{id:'integrations',label:'Интеграции',icon:'automation'},{id:'templates',label:'Шаблоны',icon:'file'},{id:'admin',label:'Администрирование',icon:'settings'},{id:'components',label:'Компоненты',icon:'grid'}]" :key="item.id" type="button" :class="{ active: activeSection === item.id }" @click="activeSection = item.id as SettingsSection"><UiIcon :name="item.icon as any" :size="18" />{{ item.label }}</button>
+      <button v-for="item in [{id:'workspace',label:'Компания',icon:'companies'},{id:'security',label:'Безопасность',icon:'settings'},{id:'sales',label:'Продажи',icon:'deals'},{id:'fields',label:'Поля',icon:'grid'},{id:'integrations',label:'Интеграции',icon:'automation'},{id:'templates',label:'Шаблоны',icon:'file'},{id:'admin',label:'Администрирование',icon:'settings'},{id:'components',label:'Компоненты',icon:'grid'}]" :key="item.id" type="button" :class="{ active: activeSection === item.id }" @click="activeSection = item.id as SettingsSection"><UiIcon :name="item.icon as any" :size="18" />{{ item.label }}</button>
     </nav>
     <div v-if="loading && activeSection !== 'components'" class="settings-loading"><span></span><span></span></div>
 
@@ -77,6 +78,8 @@ onMounted(async () => {
       <p v-if="!crmStore.notes.value.length" class="empty">Заметок пока нет</p>
     </section>
     </section>
+
+    <SecuritySettings v-if="!loading && activeSection === 'security'" />
 
     <PipelineSettings v-show="!loading && activeSection === 'sales'" />
 

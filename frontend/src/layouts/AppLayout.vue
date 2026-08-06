@@ -126,8 +126,8 @@ function navigate(to: string) {
   void router.push(to);
 }
 
-function logout() {
-  crmStore.logout();
+async function logout() {
+  await crmStore.logout();
   void router.push("/login");
 }
 

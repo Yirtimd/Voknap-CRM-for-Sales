@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, api, apiErrorMessage, apiPage, buildQuery, emptyToNull, post } from "./api";
+import { ApiError, api, apiErrorMessage, apiPage, buildQuery, emptyToNull, post, setAuthRefreshHandler } from "./api";
 
 afterEach(() => {
+  setAuthRefreshHandler(null);
   vi.unstubAllGlobals();
 });
 
@@ -26,6 +27,28 @@ describe("API client", () => {
           "X-Tenant-Id": "tenant-1"
         })
       })
+    );
+  });
+
+  it("refreshes an expired access token once and retries the request", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 401 })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: vi.fn().mockResolvedValue({ id: "user-1" })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    setAuthRefreshHandler(async () => "token-2");
+
+    await expect(api<{ id: string }>("/me", {}, "token-1", "tenant-1")).resolves.toEqual({ id: "user-1" });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/me",
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer token-2" }) })
     );
   });
 

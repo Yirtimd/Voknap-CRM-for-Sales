@@ -1,5 +1,8 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.core.config import validate_security_settings
 
 from app.modules.activity import models as activity_models  # noqa: F401
 from app.modules.ai_agent import models as ai_agent_models  # noqa: F401
@@ -36,7 +39,13 @@ from app.modules.sequences.router import router as sequences_router
 from app.modules.templates.router import router as templates_router
 
 
-app = FastAPI(title="CRM Sales App", version="0.1.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    validate_security_settings()
+    yield
+
+
+app = FastAPI(title="CRM Sales App", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

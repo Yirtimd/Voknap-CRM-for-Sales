@@ -1,6 +1,6 @@
 import { computed, ref } from "vue";
 
-import { api, apiBlob, apiErrorMessage, emptyToNull, post } from "../api";
+import { api, apiBlob, apiErrorMessage, emptyToNull, post, setAuthRefreshHandler } from "../api";
 import type {
   AgentAction,
   AgentChatResponse,
@@ -43,7 +43,7 @@ import type {
   TenantPlan
 } from "../types";
 
-const token = ref(localStorage.getItem("cmr_token") ?? "");
+const token = ref("");
 const tenantId = ref(localStorage.getItem("cmr_tenant_id") ?? "");
 const tenants = ref<Tenant[]>(JSON.parse(localStorage.getItem("cmr_tenants") ?? "[]"));
 const error = ref("");
@@ -107,10 +107,12 @@ const registerForm = ref({
   company_slug: `demo-${Math.floor(Math.random() * 10000)}`,
   owner_email: "owner@example.com",
   owner_full_name: "Demo Owner",
-  owner_password: "password123"
+  owner_password: "Voknap-Demo-2026!"
 });
 
 const loginForm = ref({ email: "owner@example.com", password: "password123" });
+const mfaToken = ref("");
+const mfaCode = ref("");
 const pipelineForm = ref({ name: "Основная воронка", stages: "Новый, В работе, КП, Сделка" });
 const contactForm = ref({ company_id: "", name: "Иван Петров", phone: "+79990000000", email: "client@example.com", company_name: "Ромашка" });
 const companyForm = ref({ name: "Ромашка", website: "https://example.com", industry: "B2B", description: "Тестовая компания" });
@@ -264,6 +266,7 @@ async function run(action: () => Promise<void>, success: string) {
 }
 
 function saveSession(auth: AuthResponse) {
+  if (!auth.access_token) return;
   token.value = auth.access_token;
   tenants.value = auth.tenants;
   const savedTenantId = localStorage.getItem("cmr_tenant_id");
@@ -272,7 +275,6 @@ function saveSession(auth: AuthResponse) {
     auth.tenants.find((tenant) => tenant.slug === "developer-test") ??
     auth.tenants[0];
   tenantId.value = preferredTenant?.id ?? "";
-  localStorage.setItem("cmr_token", token.value);
   localStorage.setItem("cmr_tenant_id", tenantId.value);
   localStorage.setItem("cmr_tenants", JSON.stringify(tenants.value));
 }
@@ -288,12 +290,46 @@ async function registerCompany() {
 async function login() {
   await run(async () => {
     const auth = await api<AuthResponse>("/auth/login", post(loginForm.value));
+    if (auth.status === "mfa_required") {
+      mfaToken.value = auth.mfa_token ?? "";
+      return;
+    }
     saveSession(auth);
     await refreshAll();
   }, "Вход выполнен");
 }
 
-function logout() {
+async function verifyMfaLogin() {
+  await run(async () => {
+    const auth = await api<AuthResponse>("/auth/mfa/verify-login", post({ mfa_token: mfaToken.value, code: mfaCode.value }));
+    saveSession(auth);
+    mfaToken.value = "";
+    mfaCode.value = "";
+    await refreshAll();
+  }, "Вход выполнен");
+}
+
+async function refreshSession(): Promise<string | null> {
+  try {
+    const auth = await api<AuthResponse>("/auth/refresh", post({}));
+    saveSession(auth);
+    return token.value || null;
+  } catch {
+    clearSession();
+    return null;
+  }
+}
+
+async function logout() {
+  try {
+    if (token.value) await api<void>("/auth/logout", post({}), token.value);
+  } catch {
+    // Local cleanup must still happen if the server session already expired.
+  }
+  clearSession();
+}
+
+function clearSession() {
   token.value = "";
   tenantId.value = "";
   tenants.value = [];
@@ -306,8 +342,13 @@ function logout() {
   nextActions.value = [];
   homeCopilot.value = null;
   me.value = null;
-  localStorage.clear();
+  mfaToken.value = "";
+  mfaCode.value = "";
+  localStorage.removeItem("cmr_tenant_id");
+  localStorage.removeItem("cmr_tenants");
 }
+
+setAuthRefreshHandler(refreshSession);
 
 async function refreshMe() {
   if (!isAuthed.value) return;
@@ -1311,6 +1352,8 @@ export const crmStore = {
   me,
   registerForm,
   loginForm,
+  mfaToken,
+  mfaCode,
   pipelineForm,
   contactForm,
   companyForm,
@@ -1342,6 +1385,8 @@ export const crmStore = {
   dealsByStage,
   registerCompany,
   login,
+  verifyMfaLogin,
+  refreshSession,
   logout,
   saveTenantId,
   refreshMe,
